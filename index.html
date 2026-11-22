@@ -140,7 +140,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22h";
+const APP_VER="2026-11-22i";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -499,7 +499,7 @@ function renderBoat(){
   <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
   <h3 style="margin-top:12px">出船記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+
   (S.trips&&S.trips.length ? `<div class="row" style="margin-bottom:6px"><button class="btn" onclick="showTrips('month')">この 1 か月</button><button class="btn" onclick="showTrips('year')">この 1 年</button><button class="btn" onclick="showTrips('all')">全部</button><button class="btn" onclick="showTrips('none')">全部消す</button></div>
-   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)}</div><div class="meta">${esc(t.start)}〜${esc(t.end)}${t.dep?`　出港 ${esc(portLabel(t.dep,true))}`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
+   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)} <span class="tag">${esc(tripArea(t))}</span></div><div class="meta">${esc(t.start)}〜${esc(t.end)}${t.dep?`　出港 ${esc(portLabel(t.dep,true))}`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
    : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`)+`
   <h3 style="margin-top:12px">記録</h3><div class="list">`+
   [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
@@ -512,8 +512,13 @@ function renderBoat(){
 const tripLayers={};   // date -> layerGroup
 const TRIP_COLORS=["#d4145a","#7c3aed","#ea580c","#0f766e","#be123c","#4d7c0f","#c026d3","#b45309"];
 function tripColor(date){ const i=[...(S.trips||[])].sort((a,b)=>a.date.localeCompare(b.date)).findIndex(x=>x.date===date); return TRIP_COLORS[(i<0?0:i)%TRIP_COLORS.length]; }
+function tripArea(t){
+  const sea=t.path.filter(p=>p[3]!==0); if(!sea.length) return "";
+  const lng=sea.reduce((s,p)=>s+p[1],0)/sea.length;
+  return lng<133.0?"松山沖":lng<133.4?"新居浜・西条沖":lng<133.65?"四国中央沖":"香川沖";
+}
 function tripInfoHtml(t){
-  return `<b>🚤 ${esc(t.date)}</b><br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>${t.dep?`出港 ${esc(t.dep.time)} ${esc(portLabel(t.dep))}<br>`:""}${t.ret?`帰港 ${esc(t.ret.time)} ${esc(portLabel(t.ret))}<br>`:""}<button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
+  return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>${t.dep?`出港 ${esc(t.dep.time)} ${esc(portLabel(t.dep))}<br>`:""}${t.ret?`帰港 ${esc(t.ret.time)} ${esc(portLabel(t.ret))}<br>`:""}<button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
 }
 function drawTrip(t){
   const ll=t.path.map(p=>[p[0],p[1]]), n=t.path.length, c=tripColor(t.date);
