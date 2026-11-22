@@ -133,7 +133,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22b";
+const APP_VER="2026-11-22c";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -466,6 +466,9 @@ function renderBoat(){
   <h3 style="margin-top:12px">整備の予定</h3><div class="list">`+
   S.plan.map((p,i)=>{ const s=planStatus(p); return `<div class="item" onclick="openMaintForm(null,'${esc(p.item)}')"><div><div class="nm">${esc(p.item)}</div><div class="meta">目安 ${p.h?p.h+" 時間":""}${p.h&&p.m?"・":""}${p.m?p.m+" か月":""}ごと${s.last?`　前回 ${esc(s.last.date)}${s.last.hours?" / "+esc(s.last.hours)+"h":""}`:""}</div></div><div class="dist" style="color:${col[s.lvl]};font-weight:700">${s.txt}</div></div>`; }).join("")+`</div>
   <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
+  <h3 style="margin-top:12px">出船記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+
+  (S.trips&&S.trips.length ? `<div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`<div class="item" onclick="showTrip('${t.date}')"><div><div class="nm">🚤 ${esc(t.date)}</div><div class="meta">${esc(t.start)}〜${esc(t.end)}　記録 ${t.n} 点</div></div><div class="dist">約 ${t.km} km</div></div>`).join("")+`</div><p class="note">ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。押すと地図に航跡を出します。</p>`
+   : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`)+`
   <h3 style="margin-top:12px">記録</h3><div class="list">`+
   [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
     ? `<div class="item" onclick="openFuelForm('${x.o.id}')"><div><div class="nm">⛽ 給油 ${esc(x.o.liters)} L${x.o.full?"（満タン）":""}</div><div class="meta">${esc(x.o.date)}　${x.o.hours?esc(x.o.hours)+" h":""}　${x.o.yen?Number(num(x.o.yen)).toLocaleString()+" 円":""}${x.o.memo?"　"+esc(x.o.memo):""}</div></div></div>`
@@ -473,6 +476,15 @@ function renderBoat(){
   ${!S.fuel.length&&!S.maint.length?'<p class="note">まだ記録がありません。給油したら「給油」、整備したら「整備」で記録してください。</p>':""}`;
   body.innerHTML=h;
 }
+let tripLine=null;
+window.showTrip=function(date){
+  const t=(S.trips||[]).find(x=>x.date===date); if(!t) return;
+  if(tripLine) map.removeLayer(tripLine);
+  const ll=t.path.map(p=>[p[0],p[1]]);
+  tripLine=L.layerGroup([L.polyline(ll,{color:"#2b6cb0",weight:4,opacity:.85}),
+    ...t.path.map(p=>L.circleMarker([p[0],p[1]],{radius:4,color:"#2b6cb0",fillOpacity:1}).bindTooltip(p[2]))]).addTo(map);
+  closeSheet(); map.fitBounds(L.latLngBounds(ll),{padding:[50,50]}); toast(`${t.date} の航跡 (もう一度別の日を押すと入れ替わります)`);
+};
 function delBtnLogic(btn,fn){ if(!btn) return; btn.onclick=()=>{ if(btn.dataset.ok!=="1"){ btn.dataset.ok="1"; btn.textContent="もう一度押すと消えます"; return; } fn(); }; }
 window.openFuelForm=function(id){
   const f=id?S.fuel.find(x=>x.id===id):{id:null,date:today(),hours:"",liters:"",yen:"",full:true,memo:""};
@@ -570,7 +582,10 @@ async function importFile(f){
   const r=new FileReader(); r.onload=()=>importText(f.name,r.result); r.readAsText(f);
 }
 function importText(name,txt){
-  if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt); if(!Array.isArray(j.points)) throw 0;
+  if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt);
+      if(Array.isArray(j.trips)){ if(!S.trips) S.trips=[]; let add=0; j.trips.forEach(t=>{ if(!S.trips.some(x=>x.date===t.date)){ S.trips.push(t); add++; } }); save(); toast(`出船記録を ${add} 日分 追加しました`); setTab("boat"); return; }
+      if(Array.isArray(j.semanticSegments)){ toast("ﾀｲﾑﾗｲﾝの元ﾌｧｲﾙは大きすぎるので、PC で海の上だけ取り出した ﾌｧｲﾙを読み込んでください"); return; }
+      if(!Array.isArray(j.points)) throw 0;
       if(j.points.length && j.points[0].point_name!==undefined){ importKaichouzu(j); return; }
       let add=0; j.points.forEach(p=>{ if(!S.points.some(x=>x.id===p.id)){ S.points.push(p); add++; } }); (j.logs||[]).forEach(l=>{ if(!S.logs.some(x=>x.id===l.id)) S.logs.push(l); });
       (j.fuel||[]).forEach(l=>{ if(!S.fuel.some(x=>x.id===l.id)) S.fuel.push(l); });
