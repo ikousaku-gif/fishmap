@@ -133,7 +133,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22c";
+const APP_VER="2026-11-22d";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -481,8 +481,13 @@ window.showTrip=function(date){
   const t=(S.trips||[]).find(x=>x.date===date); if(!t) return;
   if(tripLine) map.removeLayer(tripLine);
   const ll=t.path.map(p=>[p[0],p[1]]);
-  tripLine=L.layerGroup([L.polyline(ll,{color:"#2b6cb0",weight:4,opacity:.85}),
-    ...t.path.map(p=>L.circleMarker([p[0],p[1]],{radius:4,color:"#2b6cb0",fillOpacity:1}).bindTooltip(p[2]))]).addTo(map);
+  // 海の青に埋もれないよう、白いふち + 濃い赤紫の線。始まりは緑、終わりは赤の丸
+  const n=t.path.length;
+  tripLine=L.layerGroup([
+    L.polyline(ll,{color:"#ffffff",weight:8,opacity:.95}),
+    L.polyline(ll,{color:"#d4145a",weight:4,opacity:1}),
+    ...t.path.map((p,i)=>L.circleMarker([p[0],p[1]],{radius:i===0||i===n-1?7:4,color:"#ffffff",weight:2,
+      fillColor:i===0?"#16a34a":i===n-1?"#dc2626":"#d4145a",fillOpacity:1}).bindTooltip((i===0?"出発 ":i===n-1?"最後 ":"")+p[2]))]).addTo(map);
   closeSheet(); map.fitBounds(L.latLngBounds(ll),{padding:[50,50]}); toast(`${t.date} の航跡 (もう一度別の日を押すと入れ替わります)`);
 };
 function delBtnLogic(btn,fn){ if(!btn) return; btn.onclick=()=>{ if(btn.dataset.ok!=="1"){ btn.dataset.ok="1"; btn.textContent="もう一度押すと消えます"; return; } fn(); }; }
