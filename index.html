@@ -133,7 +133,9 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const map = L.map("map",{zoomControl:false}).setView([S.view[0],S.view[1]],S.view[2]);
+const APP_VER="2026-11-22b";
+// 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
+const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
 /* 等深線: 国土地理院 沿岸海域土地条件図 (ﾀｲﾙは z14〜16 だけ・松山沖の一部だけ) */
 const DEPTH = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/ccm2/{z}/{x}/{y}.png",{
@@ -517,6 +519,9 @@ function renderData(){
   <h3 style="margin-top:16px">控えを作る</h3>
   <p class="note">ﾃﾞｰﾀはこのｽﾏﾎの中だけにあります (ﾌﾞﾗｳｻﾞのﾃﾞｰﾀを消すと消えます)。ときどき控えを保存してください。GPX は魚探・GPS ﾌﾟﾛｯﾀｰにも読めます。</p>
   <div class="row"><button class="btn" id="expJson">控え (JSON)</button><button class="btn" id="expGpx">ﾎﾟｲﾝﾄを GPX で</button>${trackLayers.length?'<button class="btn" id="clrTrk">航跡の線を消す</button>':""}</div>
+  <h3 style="margin-top:16px">ｱﾌﾟﾘの更新</h3>
+  <p class="note">今の版: ${APP_VER}。新しい版が出た時は下を押すと読み込み直します (ﾎﾟｲﾝﾄや記録は消えません)。</p>
+  <div class="row"><button class="btn" id="reloadBtn">最新の版に更新</button></div>
   <h3 style="margin-top:16px">整備の目安 (船ﾀﾌﾞの予定に使う)</h3>
   <p class="note">項目ごとに「何時間ごと」「何か月ごと」。使わない方は 0。行を消すには項目名を空にして保存。</p>
   <div id="planRows" class="form">${S.plan.map((p,i)=>`<div class="row"><input id="pl_i${i}" value="${esc(p.item)}" style="flex:2;min-width:0"><input id="pl_h${i}" inputmode="numeric" value="${p.h}" style="flex:1;min-width:0" aria-label="時間"><input id="pl_m${i}" inputmode="numeric" value="${p.m}" style="flex:1;min-width:0" aria-label="月"></div>`).join("")}
@@ -526,6 +531,7 @@ function renderData(){
   <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。</p>
   <div class="row"><button class="btn" id="setPort">今いる場所を母港にする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
+  document.getElementById("reloadBtn").onclick=()=>{ toast("読み込み直します…"); location.replace(location.pathname+"?u="+Date.now()); };
   document.getElementById("planSave").onclick=()=>{
     const np=[]; S.plan.forEach((p,i)=>{ const it=val("pl_i"+i); if(it) np.push({item:it,h:num(val("pl_h"+i))||0,m:num(val("pl_m"+i))||0}); });
     const ni=val("pl_inew"); if(ni) np.push({item:ni,h:num(val("pl_hnew"))||0,m:num(val("pl_mnew"))||0});
