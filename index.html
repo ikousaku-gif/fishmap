@@ -84,6 +84,7 @@ svg text{fill:var(--sub);font-size:10px}
 .pin.dim{background:#8a99a6;opacity:.7}
 .pin.hit{animation:flash 1s infinite}
 .pin.sel{background:#d53f8c}
+.pin.other{background:#7c3aed}
 @keyframes flash{50%{box-shadow:0 0 0 10px rgba(232,102,28,.35)}}
 @media (prefers-reduced-motion: reduce){.pin.hit{animation:none;box-shadow:0 0 0 5px rgba(232,102,28,.5)}}
 .me{width:18px;height:18px;border-radius:50%;background:#2b6cb0;border:3px solid #fff;box-shadow:0 0 0 2px rgba(43,108,176,.4)}
@@ -130,7 +131,7 @@ svg text{fill:var(--sub);font-size:10px}
 /* ---------- 保存 (この端末の中だけ) ---------- */
 const KEY = "matsuyama_fishmap_v1";
 function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || null; }catch(e){ return null; } }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast("保存できませんでした"); } }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast("保存できませんでした"); } if(typeof scheduleSync==="function") scheduleSync(); }
 let S = load() || { points:[], logs:[], view:[33.87,132.62,11], layer:0 };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 
@@ -141,7 +142,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22r";
+const APP_VER="2026-11-22s";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -259,7 +260,7 @@ function fishOf(p){ const s=new Set(p.fish||[]); S.logs.filter(l=>l.pid===p.id).
 function drawMarkers(){
   Object.values(markers).forEach(m=>map.removeLayer(m)); markers={};
   S.points.forEach(p=>{
-    let cls="pin"; if(p.id===sel) cls+=" sel";
+    let cls="pin"; if(p.id===sel) cls+=" sel"; else if(p.by && SH.email && p.by!==SH.email) cls+=" other";
     if(fishFilter){ cls += fishOf(p).includes(fishFilter) ? " hit" : " dim"; }
     const m=L.marker([p.lat,p.lng],{icon:L.divIcon({className:"",html:`<div class="${cls}"></div>`,iconSize:[22,22],iconAnchor:[11,22]})}).addTo(map);
     m.bindTooltip(p.name,{direction:"top",offset:[0,-20]});
@@ -383,7 +384,7 @@ function renderPoints(){
   let h="";
   if(p){
     const logs=S.logs.filter(l=>l.pid===p.id).sort((a,b)=>b.date.localeCompare(a.date));
-    h+=`<h3>${esc(p.name)}</h3><div class="meta note">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.depth?`　水深 ${esc(p.depth)}m`:""}</div>
+    h+=`<h3>${esc(p.name)}</h3>${p.by?`<div class="note">登録 ${esc(who(p.by))} ${esc((p.at||"").slice(0,10))}${p.updBy?`　直した人 ${esc(who(p.updBy))} ${esc((p.updAt||"").slice(0,10))}`:""}</div>`:""}<div class="meta note">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.depth?`　水深 ${esc(p.depth)}m`:""}</div>
     <div>${fishOf(p).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}</div>
     ${p.memo?`<p style="white-space:pre-wrap;margin:6px 0">${esc(p.memo)}</p>`:""}
     <div class="row" style="margin:8px 0">
@@ -679,6 +680,8 @@ function renderData(){
   <h3 style="margin-top:16px">控えを作る</h3>
   <p class="note">ﾃﾞｰﾀはこのｽﾏﾎの中だけにあります (ﾌﾞﾗｳｻﾞのﾃﾞｰﾀを消すと消えます)。ときどき控えを保存してください。GPX は魚探・GPS ﾌﾟﾛｯﾀｰにも読めます。</p>
   <div class="row"><button class="btn" id="expJson">控え (JSON)</button><button class="btn" id="expGpx">ﾎﾟｲﾝﾄを GPX で</button>${trackLayers.length?'<button class="btn" id="clrTrk">航跡の線を消す</button>':""}</div>
+  <h3 style="margin-top:16px">共有 (ﾎﾟｲﾝﾄ・釣果)</h3>
+  <div id="shareBox">${shareHtml()}</div>
   <h3 style="margin-top:16px">ｱﾌﾟﾘの更新</h3>
   <p class="note">今の版: ${APP_VER}。新しい版が出た時は下を押すと読み込み直します (ﾎﾟｲﾝﾄや記録は消えません)。</p>
   <div class="row"><button class="btn" id="reloadBtn">最新の版に更新</button></div>
@@ -694,6 +697,7 @@ function renderData(){
   <p class="note">いま ${S.marina.lat.toFixed(5)}, ${S.marina.lng.toFixed(5)} (地図の 🚩)。地図の十字を船を出す所 (桟橋) に合わせて下を押すと、そこをﾏﾘｰﾅにします。出港記録の航路もそこに集まります。間違えないよう 2 回押しで決まります。</p>
   <div class="row"><button class="btn" id="setMarina">十字の位置をﾏﾘｰﾅにする</button><button class="btn" id="setMarinaHere">今いる場所をﾏﾘｰﾅにする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
+  shareBind();
   document.getElementById("reloadBtn").onclick=()=>{ toast("読み込み直します…"); location.replace(location.pathname+"?u="+Date.now()); };
   document.getElementById("planSave").onclick=()=>{
     const np=[]; S.plan.forEach((p,i)=>{ const it=val("pl_i"+i); if(it) np.push({item:it,h:num(val("pl_h"+i))||0,m:num(val("pl_m"+i))||0}); });
@@ -783,6 +787,112 @@ document.getElementById("fishBtn").onclick=()=>{
   sizeSheet();
 };
 
+/* ---------- 共有 (ﾎﾟｲﾝﾄ・釣果) ---------- */
+// GAS「釣りマップ共有」に Google ﾛｸﾞｲﾝの ID ﾄｰｸﾝを付けて送る。読み書きできるのは登録した人だけ。
+// 同期は 3 方向の突き合わせ: 前回の同期の控え (S.snap) と このｽﾏﾎ と 共有 を比べ、
+// このｽﾏﾎで変えた物は共有へ、他の人が変えた物はこのｽﾏﾎへ入れる。
+const SHARE_URL="https://script.google.com/macros/s/AKfycbxtA0mduBolWcN8Sd_63IHGjgWrme-rU7fH0-Zl6G_IvhrGUOPIhj6jqWR9lUQqBCE/exec";
+const GCID="263846486847-kl7aaiaoviddhperkiegen9ddae34toe.apps.googleusercontent.com";
+const SH={tok:null,exp:0,email:"",name:"",state:"",msg:"",members:null,owner:false,busy:false,last:""};
+try{ const t=JSON.parse(localStorage.getItem("fm_tok")||"null"); if(t){ Object.assign(SH,t); } }catch(e){}
+const META=["by","at","updBy","updAt"];
+function who(e){ if(!e) return ""; if(e===SH.email) return "自分"; return e.split("@")[0]; }
+function body_(o){ const c={}; Object.keys(o).sort().forEach(k=>{ if(!META.includes(k)) c[k]=o[k]; }); return JSON.stringify(c); }
+function tokOk(){ return !!SH.tok && SH.exp*1000>Date.now()+60000; }
+function api(op,extra){
+  return fetch(SHARE_URL,{method:"POST",body:JSON.stringify(Object.assign({op,token:SH.tok},extra||{}))}).then(r=>r.json());
+}
+function onCred(resp){
+  try{
+    const b64=resp.credential.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    const pl=JSON.parse(decodeURIComponent(Array.prototype.map.call(atob(b64),c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join("")));
+    SH.tok=resp.credential; SH.exp=pl.exp; SH.email=String(pl.email||"").toLowerCase(); SH.name=pl.name||"";
+    try{ localStorage.setItem("fm_tok",JSON.stringify({tok:SH.tok,exp:SH.exp,email:SH.email,name:SH.name})); }catch(e){}
+    toast("ﾛｸﾞｲﾝしました: "+SH.email); renderShareBox(); syncNow(true);
+  }catch(e){ toast("ﾛｸﾞｲﾝの結果が読めませんでした"); }
+}
+let gisReady=false;
+function gisInit(){
+  if(gisReady || !window.google || !google.accounts || !google.accounts.id) return;
+  google.accounts.id.initialize({client_id:GCID,callback:onCred,auto_select:true,cancel_on_tap_outside:true});
+  gisReady=true;
+  if(SH.email && !tokOk()) google.accounts.id.prompt();   // 前にﾛｸﾞｲﾝした人は自動で取り直す
+  if(tab==="data") renderShareBox();
+}
+(function(){ const sc=document.createElement("script"); sc.src="https://accounts.google.com/gsi/client"; sc.async=true; sc.onload=gisInit; document.head.appendChild(sc); })();
+function shareHtml(){
+  const link=location.origin+location.pathname;
+  let h=`<p class="note">ﾛｸﾞｲﾝすると、ﾎﾟｲﾝﾄと釣果を登録した人どうしで共有します。誰が入れたか・直したかも残ります。給油・整備・出港記録・母港は共有しません。</p>`;
+  if(!SH.email || !tokOk()){
+    h+=`<div id="gbtn" style="min-height:44px"></div>${SH.email?`<p class="note">前回: ${esc(SH.email)} (ﾛｸﾞｲﾝし直してください)</p>`:""}`;
+  } else {
+    h+=`<p>ﾛｸﾞｲﾝ中: <b>${esc(SH.email)}</b>　${SH.state==="ok"?"✔ 共有中":SH.state==="notmember"?"⚠ まだ登録されていません":SH.state==="err"?"⚠ つながりません":"…"}</p>`;
+    if(SH.state==="notmember") h+=`<p class="note">石川さんに、このｱﾄﾞﾚｽ (${esc(SH.email)}) を登録してもらってください。</p>`;
+    if(SH.last) h+=`<p class="note">最後の同期 ${esc(SH.last)}${SH.msg?"　"+esc(SH.msg):""}</p>`;
+    h+=`<div class="row"><button class="btn" id="syncBtn">今すぐ同期</button><button class="btn" id="logoutBtn">ﾛｸﾞｱｳﾄ</button></div>`;
+    if(SH.owner){
+      h+=`<h3 style="margin-top:12px">共有する人 (石川さんだけ変えられます)</h3><p class="note">Google のﾒｰﾙｱﾄﾞﾚｽを 1 行に 1 人。</p>
+      <textarea id="memIn" style="min-height:70px">${esc((SH.members||[]).join("\n"))}</textarea>
+      <div class="row" style="margin-top:6px"><button class="btn" id="memSave">共有する人を保存</button></div>`;
+    }
+  }
+  h+=`<div class="row" style="margin-top:8px"><button class="btn" id="copyLink">ｱﾌﾟﾘのﾘﾝｸをｺﾋﾟｰ</button><span class="note" style="user-select:all;word-break:break-all">${esc(link)}</span></div>`;
+  return h;
+}
+function renderShareBox(){ const b=document.getElementById("shareBox"); if(!b) return; b.innerHTML=shareHtml(); shareBind(); }
+function shareBind(){
+  const g=document.getElementById("gbtn");
+  if(g && gisReady){ try{ google.accounts.id.renderButton(g,{theme:"outline",size:"large",text:"signin_with",locale:"ja"}); }catch(e){} }
+  const sy=document.getElementById("syncBtn"); if(sy) sy.onclick=()=>syncNow(true);
+  const lo=document.getElementById("logoutBtn"); if(lo) lo.onclick=()=>{ SH.tok=null; SH.exp=0; SH.state=""; try{ localStorage.removeItem("fm_tok"); google.accounts.id.disableAutoSelect(); }catch(e){} renderShareBox(); toast("ﾛｸﾞｱｳﾄしました (このｽﾏﾎの記録は残ります)"); };
+  const ms=document.getElementById("memSave"); if(ms) ms.onclick=()=>{ api("setMembers",{members:val("memIn")}).then(r=>{ if(r.ok){ SH.members=r.members; toast("共有する人を保存しました"); renderShareBox(); } else toast("保存できませんでした: "+r.err); }).catch(()=>toast("つながりません")); };
+  const cl=document.getElementById("copyLink"); if(cl) cl.onclick=()=>{ const t=location.origin+location.pathname; (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("ﾘﾝｸをｺﾋﾟｰしました")).catch(()=>toast(t)); };
+}
+let syncTimer=null;
+function scheduleSync(){ if(!tokOk()||SH.busy) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncNow(),1500); }
+async function syncNow(manual){
+  if(!tokOk()){ if(manual) toast("ﾛｸﾞｲﾝし直してください"); if(gisReady && SH.email) google.accounts.id.prompt(); return; }
+  if(SH.busy) return; SH.busy=true;
+  try{
+    const r=await api("list");
+    if(!r.ok){ SH.state=r.err==="notmember"?"notmember":"err"; SH.msg=r.err||""; return; }
+    SH.state="ok"; SH.owner=!!r.owner; if(r.members) SH.members=r.members;
+    if(!S.snap) S.snap={points:{},logs:{}};
+    let up=0, down=0;
+    for(const kind of ["points","logs"]){
+      const local=S[kind], snap=S.snap[kind], srv={}; r[kind].forEach(o=>srv[o.id]=o);
+      const lmap={}; local.forEach(o=>lmap[o.id]=o);
+      const adds=[], puts=[], dels=[];
+      // このｽﾏﾎの変更 → 共有へ
+      local.forEach(o=>{ const b=body_(o); if(!(o.id in snap)){ if(!srv[o.id]) adds.push(o); } else if(snap[o.id]!==b) puts.push(o); });
+      Object.keys(snap).forEach(id=>{ if(!lmap[id] && srv[id]) dels.push(id); });
+      // 共有の変更 → このｽﾏﾎへ (このｽﾏﾎで変えた物はこちらを優先)
+      const changedHere=new Set([...adds,...puts].map(o=>o.id).concat(dels));
+      let next=local.filter(o=>!((o.id in snap) && !srv[o.id] && !changedHere.has(o.id)));  // 他で消された
+      Object.values(srv).forEach(o=>{
+        if(changedHere.has(o.id)) return;
+        const i=next.findIndex(x=>x.id===o.id);
+        if(i<0){ next.push(o); down++; }
+        else if(body_(next[i])!==body_(o) || next[i].by!==o.by || next[i].updAt!==o.updAt){ next[i]=o; down++; }
+      });
+      if(adds.length){ const rr=await api("putMany",{kind,items:adds.map(o=>Object.assign({},o,{by:o.by||SH.email}))}); if(!rr.ok) throw new Error(rr.err); up+=adds.length; }
+      for(const o of puts){ const rr=await api("put",{kind,item:o}); if(!rr.ok) throw new Error(rr.err); up++; }
+      for(const id of dels){ const rr=await api("del",{kind,id}); if(!rr.ok) throw new Error(rr.err); up++; }
+      next.forEach(o=>{ if(!o.by) o.by=SH.email; });
+      S[kind]=next;
+      const ns={}; next.forEach(o=>ns[o.id]=body_(o)); S.snap[kind]=ns;
+    }
+    SH.last=new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    SH.msg=(up||down)?`送った ${up} 件・受け取った ${down} 件`:"変わりなし";
+    try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
+    drawMarkers(); if(tab!=="data" && !body.querySelector("form")) render();
+    if(manual||up||down) toast("同期しました: "+SH.msg);
+  }catch(e){ SH.state="err"; SH.msg=String(e.message||e); if(manual) toast("同期できませんでした"); }
+  finally{ SH.busy=false; if(tab==="data") renderShareBox(); }
+}
+setInterval(()=>{ if(document.visibilityState==="visible") syncNow(); },180000);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") syncNow(); });
+
 /* ---------- その他 ---------- */
 function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 let tt; function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,2500); }
@@ -795,7 +905,7 @@ async function setWake(on){
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && follow) setWake(true); });
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 window.setTab=setTab;
-drawMarkers(); render(); depthHint(); loadTide(tideSt);
+drawMarkers(); render(); depthHint(); loadTide(tideSt); if(tokOk()) syncNow();
 setInterval(()=>{ if(tab==="tide") render(); },60000);
 </script>
 </body>
