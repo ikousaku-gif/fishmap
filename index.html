@@ -98,7 +98,7 @@ svg text{fill:var(--sub);font-size:10px}
 <div class="top">
   <div class="gps" id="gps">GPS: 待機中</div>
   <div style="flex:1;pointer-events:none"></div>
-  <button class="chip" id="fishBtn">🐟 魚で探す</button>
+  <button class="chip" id="fishBtn" title="押すと魚で探す">🐟 よくちん釣行Data</button>
 </div>
 <div class="navbox" id="navbox" hidden></div>
 <div class="cross" id="cross" aria-hidden="true"></div>
@@ -142,7 +142,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22s";
+const APP_VER="2026-11-22t";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -683,7 +683,7 @@ function renderData(){
   <h3 style="margin-top:16px">共有 (ﾎﾟｲﾝﾄ・釣果)</h3>
   <div id="shareBox">${shareHtml()}</div>
   <h3 style="margin-top:16px">ｱﾌﾟﾘの更新</h3>
-  <p class="note">今の版: ${APP_VER}。新しい版が出た時は下を押すと読み込み直します (ﾎﾟｲﾝﾄや記録は消えません)。</p>
+  <p style="margin:4px 0"><b>よくちん釣行Data</b>　版 ${APP_VER}</p><p class="note">作った人: よくちん (石川)。新しい版が出た時は下を押すと読み込み直します (ﾎﾟｲﾝﾄや記録は消えません)。</p>
   <div class="row"><button class="btn" id="reloadBtn">最新の版に更新</button></div>
   <h3 style="margin-top:16px">整備の目安 (船ﾀﾌﾞの予定に使う)</h3>
   <p class="note">項目ごとに「何時間ごと」「何か月ごと」。使わない方は 0。行を消すには項目名を空にして保存。</p>
@@ -779,10 +779,10 @@ function dl(name,txt,type){ const a=document.createElement("a"); a.href=URL.crea
 document.getElementById("fishBtn").onclick=()=>{
   const all=[...new Set([...S.points.flatMap(p=>p.fish||[]),...S.logs.map(l=>l.fish).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,"ja"));
   setTab("points",true);
-  body.innerHTML=`<h3>魚で探す</h3><p class="note">選んだ魚が登録された・釣れたﾎﾟｲﾝﾄが光ります。</p><div class="row">`+
+  body.innerHTML=`<h3>魚で探す</h3><p class="note">(上の「よくちん釣行Data」を押すとこの画面です) 選んだ魚が登録された・釣れたﾎﾟｲﾝﾄが光ります。</p><div class="row">`+
     (all.length?all.map(f=>`<button class="chip ${f===fishFilter?"on":""}" data-f="${esc(f)}">${esc(f)}</button>`).join(""):'<span class="note">まだ魚が登録されていません。</span>')+
     `</div><div class="row" style="margin-top:10px"><button class="btn" data-f="">すべて表示</button></div>`;
-  body.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{ fishFilter=b.dataset.f||null; document.getElementById("fishBtn").classList.toggle("on",!!fishFilter); document.getElementById("fishBtn").textContent=fishFilter?"🐟 "+fishFilter:"🐟 魚で探す"; drawMarkers(); sel=null; updateNav(); render();
+  body.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{ fishFilter=b.dataset.f||null; document.getElementById("fishBtn").classList.toggle("on",!!fishFilter); document.getElementById("fishBtn").textContent=fishFilter?"🐟 "+fishFilter:"🐟 よくちん釣行Data"; drawMarkers(); sel=null; updateNav(); render();
     const hit=S.points.filter(p=>fishFilter&&fishOf(p).includes(fishFilter)); if(hit.length) map.fitBounds(L.latLngBounds(hit.map(p=>[p.lat,p.lng])),{padding:[60,60],maxZoom:14}); });
   sizeSheet();
 };
