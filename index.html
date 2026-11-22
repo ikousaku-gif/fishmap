@@ -44,6 +44,12 @@ body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font);overflow:hid
 .sheet{position:fixed;z-index:600;left:0;right:0;bottom:0;background:var(--glass);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.15);padding-bottom:env(safe-area-inset-bottom,0px);display:flex;flex-direction:column;max-height:36vh}
 .sheet.tall{max-height:72vh;background:var(--panel)}
 body.tallsheet .fab{display:none}
+/* 地図の見えている所の真ん中に出す十字 (下の画面の分を引いた真ん中) */
+.cross{position:fixed;z-index:450;left:50%;top:calc((100% - var(--sheet-h,56px)) / 2);width:34px;height:34px;transform:translate(-50%,-50%);pointer-events:none}
+.cross::before,.cross::after{content:"";position:absolute;background:#d4145a;box-shadow:0 0 0 1.5px #fff}
+.cross::before{left:16px;top:0;width:2px;height:34px}
+.cross::after{top:16px;left:0;height:2px;width:34px}
+body.tallsheet .cross{display:none}
 .grab{display:flex;justify-content:center;align-items:center;gap:8px;border:0;background:none;color:var(--sub);font:inherit;font-size:12px;padding:6px 0 0;cursor:pointer;width:100%}
 .grab::before{content:"";width:40px;height:4px;border-radius:2px;background:var(--line)}
 .tabs{display:flex;border-bottom:1px solid var(--line);padding:0 max(8px,env(safe-area-inset-left,0px))}
@@ -94,6 +100,7 @@ svg text{fill:var(--sub);font-size:10px}
   <button class="chip" id="fishBtn">🐟 魚で探す</button>
 </div>
 <div class="navbox" id="navbox" hidden></div>
+<div class="cross" id="cross" aria-hidden="true"></div>
 
 <div class="fab">
   <button id="depthBtn" title="等深線の表示">〰</button>
@@ -133,7 +140,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22e";
+const APP_VER="2026-11-22f";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -185,7 +192,8 @@ if("geolocation" in navigator){
     const kt = me.spd!=null ? (me.spd*1.94384).toFixed(1)+" ﾉｯﾄ" : "";
     gpsEl.innerHTML=`<b>${me.lat.toFixed(5)}, ${me.lng.toFixed(5)}</b><br>誤差 ${Math.round(me.acc)}m ${kt}`;
     if(follow) map.setView(ll,Math.max(map.getZoom(),14));
-    updateNav(); if(tab==="points") render();
+    // 入力画面 (form) を開いている間は描き直さない (GPS の更新で入力が消えないように)
+    updateNav(); if(tab==="points" && !sheet.classList.contains("closed") && !body.querySelector("form")) render();
   },err=>{ gpsEl.textContent="GPS: "+(err.code===1?"位置の使用が許可されていません":"取れません"); },{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
 } else gpsEl.textContent="GPS: この端末では使えません";
 /* 起点: 現在地 (GPS) か 母港 (和気漁港)。◎ を押すたびに 現在地 → 現在地を追う → 和気漁港 → 現在地… */
@@ -240,6 +248,11 @@ function drawMarkers(){
     markers[p.id]=m;
   });
 }
+window.addAtCross=function(){
+  const sh=sheet.offsetHeight;
+  const sz=map.getSize(); const ll=map.containerPointToLatLng([sz.x/2,(sz.y-sh)/2]);
+  openPointForm(null,ll.lat,ll.lng);
+};
 function selectPoint(id){ sel=id; drawMarkers(); updateNav(); render(); if(id) setTimeout(()=>showAboveSheet(id),350); }
 function showAboveSheet(id){ // ﾎﾟｲﾝﾄが下の画面に隠れないよう、見えている所の真ん中へ
   const p=S.points.find(x=>x.id===id); if(!p) return;
@@ -361,7 +374,7 @@ function renderPoints(){
   const arr=S.points.map(p=>({p,d:o?distM(o.lat,o.lng,p.lat,p.lng):null,b:o?bearing(o.lat,o.lng,p.lat,p.lng):null}))
     .filter(o=>!fishFilter||fishOf(o.p).includes(fishFilter)).sort((a,b)=>(a.d??0)-(b.d??0));
   h+=`<div class="note">距離の起点: ${S.base==="port"?"⚓ "+esc(S.port.name):"現在地"} (右の ◎/⚓ で切り替え)</div>`;
-  h+=`<div class="row" style="justify-content:space-between"><h3>ﾎﾟｲﾝﾄ ${fishFilter?`(${esc(fishFilter)})`:""} ${arr.length}件</h3><button class="btn" onclick="openPointForm(null,map.getCenter().lat,map.getCenter().lng)">地図の真ん中に追加</button></div>`;
+  h+=`<div class="row" style="justify-content:space-between"><h3>ﾎﾟｲﾝﾄ ${fishFilter?`(${esc(fishFilter)})`:""} ${arr.length}件</h3><button class="btn" onclick="addAtCross()">十字の所に追加</button></div>`;
   if(!S.points.length) h+=`<p class="note">まだﾎﾟｲﾝﾄがありません。海釣図V のﾊﾞｯｸｱｯﾌﾟ (zip) を読み込むと、登録したﾎﾟｲﾝﾄがまとめて入ります。右下の「＋」で今の場所を、地図を長押しでその場所も登録できます。</p><div class="row"><button class="btn pri" onclick="setTab('data')">海釣図V のﾊﾞｯｸｱｯﾌﾟを読み込む</button></div>`;
   h+=`<div class="list">`+arr.map(o=>`<div class="item" onclick="selectPoint('${o.p.id}')"><div><div class="nm">${esc(o.p.name)}</div><div class="meta">${fishOf(o.p).join("・")||"魚 未登録"}${o.p.depth?`　${esc(o.p.depth)}m`:""}</div></div><div class="dist">${o.d!=null?fmtD(o.d)+"<br>"+dirName(o.b):""}</div></div>`).join("")+`</div>`;
   h+=`<div class="warnbar">※ 釣り用のﾒﾓ地図です。航行の安全は海図・魚探・GPS ﾌﾟﾛｯﾀｰで確かめてください。等深線 (〰) は、興居島・中島・松山港の沖などは国土地理院の沿岸海域土地条件図 (細かい・昔の測量)、それ以外 (青島・防予諸島など) は NOAA の世界の水深ﾃﾞｰﾀから作った粗い線 (約 450m 間隔・5/10/20m…) です。岸の近くはずれます。</div>`;
@@ -468,7 +481,7 @@ function renderBoat(){
   <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
   <h3 style="margin-top:12px">出船記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+
   (S.trips&&S.trips.length ? `<div class="row" style="margin-bottom:6px"><button class="btn" onclick="showTrips('month')">この 1 か月</button><button class="btn" onclick="showTrips('year')">この 1 年</button><button class="btn" onclick="showTrips('all')">全部</button><button class="btn" onclick="showTrips('none')">全部消す</button></div>
-   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)}</div><div class="meta">${esc(t.start)}〜${esc(t.end)}　記録 ${t.n} 点</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
+   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)}</div><div class="meta">${esc(t.start)}〜${esc(t.end)}${t.dep&&t.dep.name?`　出港 ${esc(t.dep.name.replace("松山市",""))}`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
    : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`)+`
   <h3 style="margin-top:12px">記録</h3><div class="list">`+
   [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
@@ -482,15 +495,20 @@ const tripLayers={};   // date -> layerGroup
 const TRIP_COLORS=["#d4145a","#7c3aed","#ea580c","#0f766e","#be123c","#4d7c0f","#c026d3","#b45309"];
 function tripColor(date){ const i=[...(S.trips||[])].sort((a,b)=>a.date.localeCompare(b.date)).findIndex(x=>x.date===date); return TRIP_COLORS[(i<0?0:i)%TRIP_COLORS.length]; }
 function tripInfoHtml(t){
-  return `<b>🚤 ${esc(t.date)}</b><br>${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>記録 ${t.n} 点<br><button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
+  return `<b>🚤 ${esc(t.date)}</b><br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>${t.dep?`出港 ${esc(t.dep.time)} ${esc(t.dep.name||"")}<br>`:""}${t.ret?`帰港 ${esc(t.ret.time)} ${esc(t.ret.name||"")}<br>`:""}<button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
 }
 function drawTrip(t){
   const ll=t.path.map(p=>[p[0],p[1]]), n=t.path.length, c=tripColor(t.date);
-  const line=L.polyline(ll,{color:c,weight:4,opacity:1});
-  const g=L.layerGroup([
-    L.polyline(ll,{color:"#ffffff",weight:8,opacity:.95}), line,
-    ...t.path.map((p,i)=>L.circleMarker([p[0],p[1]],{radius:i===0||i===n-1?7:4,color:"#ffffff",weight:2,
-      fillColor:i===0?"#16a34a":i===n-1?"#dc2626":c,fillOpacity:1}).bindTooltip(`${t.date.slice(5)} ${(i===0?"出発 ":i===n-1?"最後 ":"")+p[2]}`))]);
+  // 海の上は太い実線、陸の上 (港までの道) は点線
+  const parts=[];
+  for(let i=0;i<n-1;i++){ const a=t.path[i], b=t.path[i+1]; const land=(a[3]===0||b[3]===0);
+    parts.push(L.polyline([[a[0],a[1]],[b[0],b[1]]],land?{color:c,weight:3,opacity:.8,dashArray:"4 6"}:{color:c,weight:4,opacity:1})); }
+  const casing=L.polyline(t.path.filter(p=>p[3]!==0).map(p=>[p[0],p[1]]),{color:"#ffffff",weight:8,opacity:.95});
+  const pins=[];
+  if(t.dep) pins.push(L.circleMarker([t.dep.lat,t.dep.lng],{radius:8,color:"#fff",weight:2,fillColor:"#16a34a",fillOpacity:1}).bindTooltip(`出港 ${t.dep.time} ${t.dep.name||""}`));
+  if(t.ret) pins.push(L.circleMarker([t.ret.lat,t.ret.lng],{radius:8,color:"#fff",weight:2,fillColor:"#dc2626",fillOpacity:1}).bindTooltip(`帰港 ${t.ret.time} ${t.ret.name||""}`));
+  const g=L.layerGroup([casing,...parts,
+    ...t.path.map(p=>L.circleMarker([p[0],p[1]],{radius:p[3]===0?3:4,color:"#ffffff",weight:1.5,fillColor:c,fillOpacity:1}).bindTooltip(`${t.date.slice(5)} ${p[2]}`)),...pins]);
   g.eachLayer(l=>l.on("click",e=>{ L.popup().setLatLng(e.latlng).setContent(tripInfoHtml(t)).openOn(map); }));
   return g;
 }
@@ -610,7 +628,10 @@ async function importFile(f){
 }
 function importText(name,txt){
   if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt);
-      if(Array.isArray(j.trips)){ if(!S.trips) S.trips=[]; let add=0; j.trips.forEach(t=>{ if(!S.trips.some(x=>x.date===t.date)){ S.trips.push(t); add++; } }); save(); toast(`出船記録を ${add} 日分 追加しました`); setTab("boat"); return; }
+      if(Array.isArray(j.trips)){ if(!S.trips) S.trips=[]; let add=0, upd=0;
+        j.trips.forEach(t=>{ const i=S.trips.findIndex(x=>x.date===t.date); if(i<0){ S.trips.push(t); add++; } else { S.trips[i]=t; upd++; } });
+        Object.keys(tripLayers).forEach(d=>toggleTrip(d,false));
+        save(); toast(`出船記録: ${add} 日分 追加・${upd} 日分 更新しました`); setTab("boat"); return; }
       if(Array.isArray(j.semanticSegments)){ toast("ﾀｲﾑﾗｲﾝの元ﾌｧｲﾙは大きすぎるので、PC で海の上だけ取り出した ﾌｧｲﾙを読み込んでください"); return; }
       if(!Array.isArray(j.points)) throw 0;
       if(j.points.length && j.points[0].point_name!==undefined){ importKaichouzu(j); return; }
