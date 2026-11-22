@@ -141,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22m";
+const APP_VER="2026-11-22n";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -201,15 +201,22 @@ if("geolocation" in navigator){
 // 和気港 = 自分の船 (ﾀｲﾑﾗｲﾝで出港前に止まっていた場所)。前の仮座標のままなら置き換える
 if(!S.port || (Math.abs(S.port.lat-33.8975)<1e-4 && Math.abs(S.port.lng-132.7235)<1e-4)) S.port={lat:33.9026,lng:132.7345,name:"和気港"};
 // 知っている港: 出港地の名前をこちらで出す
+if(!S.marina) S.marina={lat:33.9361,lng:132.7630,name:"ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ"};
+// 港の一覧: 本人が決めた位置 (at) と、Google が「立ち寄り」で記録した場所 (alias) の両方で見分け、本人の位置へ寄せる
 const KNOWN_PORTS=[
-  {name:"和気港 (自分の船)",short:"和気港",lat:()=>S.port.lat,lng:()=>S.port.lng},
-  {name:"ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)",short:"ﾏﾘｰﾅ",lat:()=>33.9361,lng:()=>132.7630}];
+  {name:"和気港 (自分の船)",short:"和気港",at:()=>S.port,alias:[{lat:33.9026,lng:132.7345}]},
+  {name:"ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)",short:"ﾏﾘｰﾅ",at:()=>S.marina,alias:[{lat:33.9361,lng:132.7630}]}];
+function nearPort(p,m){
+  if(!p) return null;
+  for(const k of KNOWN_PORTS){ for(const q of [k.at(),...k.alias]){ if(distM(p.lat,p.lng,q.lat,q.lng)<m) return k; } }
+  return null;
+}
 function portLabel(p,short){
   if(!p) return "";
-  for(const k of KNOWN_PORTS){ if(distM(p.lat,p.lng,k.lat(),k.lng())<500) return short?k.short:k.name; }
+  const k=nearPort(p,800); if(k) return short?k.short:k.name;
   return short?(p.name||"").replace("松山市",""):(p.name||"");
 }
-L.marker([33.9361,132.7630],{icon:L.divIcon({className:"",html:'<div style="font-size:36px;line-height:36px;filter:drop-shadow(0 0 2px #fff)">🚩</div>',iconSize:[36,36],iconAnchor:[8,34]}),zIndexOffset:400}).addTo(map).bindTooltip("ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)");
+const marinaMk=L.marker([S.marina.lat,S.marina.lng],{icon:L.divIcon({className:"",html:'<div style="font-size:36px;line-height:36px;filter:drop-shadow(0 0 2px #fff)">🚩</div>',iconSize:[36,36],iconAnchor:[8,34]}),zIndexOffset:400}).addTo(map).bindTooltip("ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)");
 const portMk=L.marker([S.port.lat,S.port.lng],{icon:L.divIcon({className:"",html:'<div style="font-size:44px;line-height:44px;filter:drop-shadow(0 0 2px #fff)">⚓</div>',iconSize:[44,44],iconAnchor:[22,22]}),zIndexOffset:500}).addTo(map).bindTooltip(S.port.name);
 function origin(){ return S.base==="port" ? S.port : me; }
 const followBtn=document.getElementById("followBtn");
@@ -546,11 +553,10 @@ window.openTripForm=function(date){
 function snapPort(fix,p){
   const f=fix||"";
   if(/和気/.test(f)) return [S.port.lat,S.port.lng];
-  if(/ﾏﾘｰﾅ|マリーナ|ｱﾝｶﾚｯｼﾞ|アンカレッジ/.test(f)) return [33.9361,132.7630];
+  if(/ﾏﾘｰﾅ|マリーナ|ｱﾝｶﾚｯｼﾞ|アンカレッジ/.test(f)) return [S.marina.lat,S.marina.lng];
   if(f && f!=="不明") return null;
-  if(!p) return null;
-  for(const k of KNOWN_PORTS){ if(distM(p.lat,p.lng,k.lat(),k.lng())<1500) return [k.lat(),k.lng()]; }
-  return null;
+  const k=nearPort(p,1500); if(!k) return null;
+  return [k.at().lat,k.at().lng];
 }
 function drawTrip(t){
   const c=tripColor(t.date);
@@ -656,14 +662,21 @@ function renderData(){
   <h3 style="margin-top:16px">母港</h3>
   <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。</p>
   <div class="row"><button class="btn" id="setPort">今いる場所を母港にする</button></div>
+  <h3 style="margin-top:16px">ｱﾝｶﾚｯｼﾞﾏﾘｰﾅの位置</h3>
+  <p class="note">いま ${S.marina.lat.toFixed(5)}, ${S.marina.lng.toFixed(5)} (地図の 🚩)。地図の十字を船を出す所 (桟橋) に合わせて下を押すと、そこをﾏﾘｰﾅにします。出港記録の航路もそこに集まります。間違えないよう 2 回押しで決まります。</p>
+  <div class="row"><button class="btn" id="setMarina">十字の位置をﾏﾘｰﾅにする</button><button class="btn" id="setMarinaHere">今いる場所をﾏﾘｰﾅにする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
   document.getElementById("reloadBtn").onclick=()=>{ toast("読み込み直します…"); location.replace(location.pathname+"?u="+Date.now()); };
   document.getElementById("planSave").onclick=()=>{
     const np=[]; S.plan.forEach((p,i)=>{ const it=val("pl_i"+i); if(it) np.push({item:it,h:num(val("pl_h"+i))||0,m:num(val("pl_m"+i))||0}); });
     const ni=val("pl_inew"); if(ni) np.push({item:ni,h:num(val("pl_hnew"))||0,m:num(val("pl_mnew"))||0});
     S.plan=np; save(); render(); toast("整備の目安を保存しました"); };
+  const setMar=(lat,lng)=>{ S.marina={...S.marina,lat,lng}; marinaMk.setLatLng([lat,lng]); Object.keys(tripLayers).forEach(d=>{ toggleTrip(d,false); toggleTrip(d,true); }); save(); render(); toast("ﾏﾘｰﾅの位置を決めました"); };
+  const twice=(id,fn)=>{ const b=document.getElementById(id); b.onclick=()=>{ if(b.dataset.ok!=="1"){ b.dataset.ok="1"; b.textContent="もう一度押すと決まります"; return; } fn(); }; };
+  twice("setMarina",()=>{ closeSheet(); setTimeout(()=>{ const sz=map.getSize(); const ll=map.containerPointToLatLng([sz.x/2,(sz.y-sheet.offsetHeight)/2]); setMar(ll.lat,ll.lng); },50); });
+  twice("setMarinaHere",()=>{ if(!me){ toast("まだ現在地が取れていません"); return; } setMar(me.lat,me.lng); });
   document.getElementById("setPort").onclick=()=>{ if(!me){ toast("まだ現在地が取れていません"); return; }
-    S.port={...S.port,lat:me.lat,lng:me.lng}; portMk.setLatLng([me.lat,me.lng]); save(); updateNav(); render(); toast("母港を今の場所にしました"); };
+    S.port={...S.port,lat:me.lat,lng:me.lng}; portMk.setLatLng([me.lat,me.lng]); Object.keys(tripLayers).forEach(d=>{ toggleTrip(d,false); toggleTrip(d,true); }); save(); updateNav(); render(); toast("母港を今の場所にしました"); };
   document.getElementById("fileIn").onchange=e=>{ const f=e.target.files[0]; if(f) importFile(f); };
   document.getElementById("expJson").onclick=()=>dl(`釣りﾏｯﾌﾟ控え_${ymd(new Date())}.json`,JSON.stringify(S,null,1),"application/json");
   document.getElementById("expGpx").onclick=()=>dl(`釣りﾎﾟｲﾝﾄ_${ymd(new Date())}.gpx`,toGpx(),"application/gpx+xml");
