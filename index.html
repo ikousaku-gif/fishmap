@@ -141,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22n";
+const APP_VER="2026-11-22o";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -529,7 +529,7 @@ function tripArea(t){
 function depText(t,short){ return t.depFix || (t.dep?portLabel(t.dep,short):"不明"); }
 function retText(t,short){ return t.retFix || (t.ret?portLabel(t.ret,short):"不明"); }
 function tripInfoHtml(t){
-  return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}${t.memo?`<br><b>${esc(t.memo)}</b>`:""}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>出港 ${t.dep?esc(t.dep.time):""} ${esc(depText(t))}<br>帰港 ${t.ret?esc(t.ret.time):""} ${esc(retText(t))}<br><button class="btn" style="margin-top:6px;padding:4px 10px" onclick="openTripForm('${t.date}')">直す</button> <button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
+  return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}${t.memo?`<br><b>${esc(t.memo)}</b>`:""}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>出港 ${t.dep?esc(t.dep.time):""} ${esc(depText(t))}<br>帰港 ${t.ret?esc(t.ret.time):""} ${esc(retText(t))}<br><button class="btn" style="margin-top:6px;padding:4px 10px" onclick="openTripForm('${t.date}')">直す</button> <button class="btn" style="margin-top:6px;padding:4px 10px" onclick="onlyTrip('${t.date}')">この航路だけ表示</button> <button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
 }
 window.openTripForm=function(date){
   const t=S.trips.find(x=>x.date===date); if(!t) return; map.closePopup(); setTab("trips",true);
@@ -588,6 +588,12 @@ window.toggleTrip=function(date,on){
   if(on && !shown){ tripLayers[date]=drawTrip(t).addTo(map); }
   if(!on && shown){ map.removeLayer(tripLayers[date]); delete tripLayers[date]; map.closePopup(); }
   if(tab==="trips" && !sheet.classList.contains("closed")) render();
+};
+window.onlyTrip=function(date){
+  Object.keys(tripLayers).forEach(d=>{ if(d!==date) toggleTrip(d,false); });
+  toggleTrip(date,true); map.closePopup();
+  const t=S.trips.find(x=>x.date===date); if(t) map.fitBounds(L.latLngBounds(t.path.map(p=>[p[0],p[1]])),{padding:[50,50]});
+  toast(`${date} の航路だけを出しました`);
 };
 window.showTrips=function(range){
   Object.keys(tripLayers).forEach(d=>toggleTrip(d,false));
