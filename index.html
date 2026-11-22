@@ -43,6 +43,7 @@ body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font);overflow:hid
 .fab button.on{background:var(--accent);color:var(--accent-fg)}
 .sheet{position:fixed;z-index:600;left:0;right:0;bottom:0;background:var(--glass);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.15);padding-bottom:env(safe-area-inset-bottom,0px);display:flex;flex-direction:column;max-height:36vh}
 .sheet.tall{max-height:72vh;background:var(--panel)}
+body.tallsheet .fab{display:none}
 .grab{display:flex;justify-content:center;align-items:center;gap:8px;border:0;background:none;color:var(--sub);font:inherit;font-size:12px;padding:6px 0 0;cursor:pointer;width:100%}
 .grab::before{content:"";width:40px;height:4px;border-radius:2px;background:var(--line)}
 .tabs{display:flex;border-bottom:1px solid var(--line);padding:0 max(8px,env(safe-area-inset-left,0px))}
@@ -107,6 +108,7 @@ svg text{fill:var(--sub);font-size:10px}
     <button data-t="points" class="on">ﾎﾟｲﾝﾄ</button>
     <button data-t="tide">潮</button>
     <button data-t="log">釣果</button>
+    <button data-t="boat">船</button>
     <button data-t="data">ﾃﾞｰﾀ</button>
   </div>
   <div class="body" id="body"></div>
@@ -322,15 +324,15 @@ const body=document.getElementById("body"); let tab="points";
 document.getElementById("tabs").onclick=e=>{ const t=e.target.dataset.t; if(!t) return; if(t===tab && !sheet.classList.contains("closed")){ closeSheet(); return; } setTab(t); };
 const sheet=document.getElementById("sheet");
 const grab=document.getElementById("grab");
-function setTall(on){ sheet.classList.toggle("tall",!!on); }
+function setTall(on){ sheet.classList.toggle("tall",!!on); document.body.classList.toggle("tallsheet",!!on); }
 function closeSheet(){ sheet.classList.add("closed"); setTall(false); grab.textContent="開く"; sizeSheet(); }
 grab.onclick=()=>{ if(sheet.classList.contains("closed")){ sheet.classList.remove("closed"); grab.textContent="閉じる"; render(); } else closeSheet(); };
-function setTab(t,noRender){ tab=t; sheet.classList.remove("closed"); grab.textContent="閉じる"; setTall(noRender || t==="data" || t==="tide"); document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t)); if(!noRender) render(); sizeSheet(); }
+function setTab(t,noRender){ tab=t; sheet.classList.remove("closed"); grab.textContent="閉じる"; setTall(noRender || t==="data" || t==="tide" || t==="boat"); document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t)); if(!noRender) render(); sizeSheet(); }
 function sizeSheet(){ requestAnimationFrame(()=>document.documentElement.style.setProperty("--sheet-h",sheet.offsetHeight+"px")); }
 
 function render(){
-  setTall(tab==="data"||tab==="tide");
-  if(tab==="points") renderPoints(); else if(tab==="tide") renderTide(); else if(tab==="log") renderLog(); else renderData();
+  setTall(tab==="data"||tab==="tide"||tab==="boat");
+  if(tab==="points") renderPoints(); else if(tab==="tide") renderTide(); else if(tab==="log") renderLog(); else if(tab==="boat") renderBoat(); else renderData();
   sizeSheet();
 }
 function renderPoints(){
@@ -416,6 +418,96 @@ window.openLogForm=function(id,pid){
   if(del) del.onclick=()=>{ if(del.dataset.ok!=="1"){ del.dataset.ok="1"; del.textContent="もう一度押すと消えます"; return; } S.logs=S.logs.filter(x=>x.id!==id); save(); drawMarkers(); render(); toast("消しました"); };
 };
 
+/* ---------- 船 (給油・燃費・整備) ---------- */
+if(!S.fuel) S.fuel=[]; if(!S.maint) S.maint=[];
+// 整備の目安 (仮): DF200 の取扱説明書で確かめて直す前提。h=時間, m=月
+if(!S.plan) S.plan=[
+  {item:"ｴﾝｼﾞﾝｵｲﾙ",h:100,m:12},{item:"ｵｲﾙﾌｨﾙﾀｰ",h:200,m:24},{item:"ｷﾞｱｵｲﾙ",h:100,m:12},
+  {item:"燃料ﾌｨﾙﾀｰ",h:200,m:24},{item:"ｽﾊﾟｰｸﾌﾟﾗｸﾞ",h:200,m:24},{item:"ｲﾝﾍﾟﾗ",h:300,m:36},
+  {item:"ｱﾉｰﾄﾞ点検",h:0,m:6}];
+const today=()=>ymd(new Date());
+const num=v=>{ const n=parseFloat(String(v).replace(/[,，]/g,"")); return isNaN(n)?null:n; };
+function curHours(){ return Math.max(0,...S.fuel.map(f=>num(f.hours)||0),...S.maint.map(m=>num(m.hours)||0)); }
+function fuelStats(){
+  const fs=[...S.fuel].filter(f=>num(f.hours)!=null&&num(f.liters)!=null).sort((a,b)=>num(a.hours)-num(b.hours));
+  const legs=[]; let last=null, acc=0;
+  fs.forEach(f=>{ if(last){ acc+=num(f.liters); if(f.full){ const dh=num(f.hours)-num(last.hours); if(dh>0) legs.push({from:last,to:f,l:acc,h:dh,lph:acc/dh}); last=f; acc=0; } } else if(f.full){ last=f; acc=0; } });
+  const tl=legs.reduce((s,x)=>s+x.l,0), th=legs.reduce((s,x)=>s+x.h,0);
+  const ys=new Date().getFullYear()+"";
+  const yen=S.fuel.filter(f=>(f.date||"").startsWith(ys)).reduce((s,f)=>s+(num(f.yen)||0),0);
+  const lit=S.fuel.filter(f=>(f.date||"").startsWith(ys)).reduce((s,f)=>s+(num(f.liters)||0),0);
+  return {legs, avg: th?tl/th:null, yen, lit};
+}
+function planStatus(p){
+  const done=S.maint.filter(m=>m.item===p.item).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const lastM=done[done.length-1]; const H=curHours();
+  if(!lastM) return {last:null, txt:"記録なし", lvl:"none"};
+  let lvl="ok", parts=[];
+  if(p.h){ const left=(num(lastM.hours)||0)+p.h-H; parts.push(left>=0?`あと ${Math.round(left)} 時間`:`${Math.round(-left)} 時間 過ぎ`); if(left<0) lvl="over"; else if(left<=10) lvl="soon"; }
+  if(p.m){ const d=new Date(lastM.date); d.setMonth(d.getMonth()+p.m); const left=Math.round((d-new Date())/86400000); parts.push(left>=0?`あと ${left} 日`:`${-left} 日 過ぎ`); if(left<0) lvl="over"; else if(left<=30 && lvl!=="over") lvl="soon"; }
+  return {last:lastM, txt:parts.join("・"), lvl};
+}
+function renderBoat(){
+  const st=fuelStats(), H=curHours();
+  const col={over:"#c53030",soon:"#b7791f",ok:"var(--ok)",none:"var(--sub)"};
+  const lastLeg=st.legs[st.legs.length-1];
+  let h=`<div class="row" style="justify-content:space-between"><h3>船 (UF28・DF200)</h3><div class="row"><button class="btn pri" onclick="openFuelForm()">給油</button><button class="btn pri" onclick="openMaintForm()">整備</button></div></div>
+  <div class="tev" style="grid-template-columns:repeat(3,1fr)">
+    <div><div class="k">ｱﾜｰﾒｰﾀｰ</div>${H?H.toFixed(1)+" h":"―"}</div>
+    <div><div class="k">燃費 (平均)</div>${st.avg?st.avg.toFixed(1)+" L/h":"―"}</div>
+    <div><div class="k">前回の燃費</div>${lastLeg?lastLeg.lph.toFixed(1)+" L/h":"―"}</div>
+    <div><div class="k">今年の給油</div>${st.lit?Math.round(st.lit)+" L":"―"}</div>
+    <div><div class="k">今年の燃料代</div>${st.yen?st.yen.toLocaleString()+" 円":"―"}</div>
+    <div><div class="k">平均単価</div>${st.lit&&st.yen?Math.round(st.yen/st.lit)+" 円/L":"―"}</div>
+  </div>
+  <p class="note">燃費は「満タン」から次の「満タン」までに入れた量 ÷ その間のｱﾜｰﾒｰﾀｰの時間 で出します。満タンの給油が 2 回たまると出ます。</p>
+  <h3 style="margin-top:12px">整備の予定</h3><div class="list">`+
+  S.plan.map((p,i)=>{ const s=planStatus(p); return `<div class="item" onclick="openMaintForm(null,'${esc(p.item)}')"><div><div class="nm">${esc(p.item)}</div><div class="meta">目安 ${p.h?p.h+" 時間":""}${p.h&&p.m?"・":""}${p.m?p.m+" か月":""}ごと${s.last?`　前回 ${esc(s.last.date)}${s.last.hours?" / "+esc(s.last.hours)+"h":""}`:""}</div></div><div class="dist" style="color:${col[s.lvl]};font-weight:700">${s.txt}</div></div>`; }).join("")+`</div>
+  <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
+  <h3 style="margin-top:12px">記録</h3><div class="list">`+
+  [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
+    ? `<div class="item" onclick="openFuelForm('${x.o.id}')"><div><div class="nm">⛽ 給油 ${esc(x.o.liters)} L${x.o.full?"（満タン）":""}</div><div class="meta">${esc(x.o.date)}　${x.o.hours?esc(x.o.hours)+" h":""}　${x.o.yen?Number(num(x.o.yen)).toLocaleString()+" 円":""}${x.o.memo?"　"+esc(x.o.memo):""}</div></div></div>`
+    : `<div class="item" onclick="openMaintForm('${x.o.id}')"><div><div class="nm">🔧 ${esc(x.o.item)}</div><div class="meta">${esc(x.o.date)}　${x.o.hours?esc(x.o.hours)+" h":""}　${x.o.yen?Number(num(x.o.yen)).toLocaleString()+" 円":""}${x.o.memo?"　"+esc(x.o.memo):""}</div></div></div>`).join("")+`</div>
+  ${!S.fuel.length&&!S.maint.length?'<p class="note">まだ記録がありません。給油したら「給油」、整備したら「整備」で記録してください。</p>':""}`;
+  body.innerHTML=h;
+}
+function delBtnLogic(btn,fn){ if(!btn) return; btn.onclick=()=>{ if(btn.dataset.ok!=="1"){ btn.dataset.ok="1"; btn.textContent="もう一度押すと消えます"; return; } fn(); }; }
+window.openFuelForm=function(id){
+  const f=id?S.fuel.find(x=>x.id===id):{id:null,date:today(),hours:"",liters:"",yen:"",full:true,memo:""};
+  const H=curHours(); setTab("boat",true);
+  body.innerHTML=`<h3>${id?"給油を直す":"給油を記録"}</h3><form class="form" id="ff">
+    <div class="row"><label>日付<input type="date" id="ff_date" value="${esc(f.date)}"></label><label>ｱﾜｰﾒｰﾀｰ (h)${H?`<span class="note">前回 ${H.toFixed(1)}</span>`:""}<input id="ff_hours" inputmode="decimal" value="${esc(f.hours)}"></label></div>
+    <div class="row"><label>入れた量 (L)<input id="ff_l" inputmode="decimal" value="${esc(f.liters)}" required></label><label>金額 (円)<input id="ff_yen" inputmode="numeric" value="${esc(f.yen)}"></label></div>
+    <label style="flex-direction:row;align-items:center;gap:8px;color:var(--fg)"><input type="checkbox" id="ff_full" style="width:auto" ${f.full?"checked":""}> 満タンにした (燃費の計算に使う)</label>
+    <label>ﾒﾓ (ｽﾀﾝﾄﾞ・ﾏﾘｰﾅなど)<input id="ff_memo" value="${esc(f.memo)}"></label>
+    <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="ff_cancel">やめる</button>${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="ff_del">消す</button>':""}</div></form>`;
+  document.getElementById("ff").onsubmit=e=>{ e.preventDefault();
+    const nf={id:f.id||uid(),date:val("ff_date"),hours:val("ff_hours"),liters:val("ff_l"),yen:val("ff_yen"),full:document.getElementById("ff_full").checked,memo:val("ff_memo")};
+    if(num(nf.liters)==null){ toast("入れた量を数字で入れてください"); return; }
+    if(id) S.fuel[S.fuel.findIndex(x=>x.id===id)]=nf; else S.fuel.push(nf);
+    save(); toast("給油を記録しました"); render(); };
+  document.getElementById("ff_cancel").onclick=()=>render();
+  delBtnLogic(document.getElementById("ff_del"),()=>{ S.fuel=S.fuel.filter(x=>x.id!==id); save(); render(); toast("消しました"); });
+};
+window.openMaintForm=function(id,item){
+  const m=id?S.maint.find(x=>x.id===id):{id:null,date:today(),hours:"",item:item||"",yen:"",memo:""};
+  const H=curHours(); setTab("boat",true);
+  body.innerHTML=`<h3>${id?"整備を直す":"整備を記録"}</h3><form class="form" id="mf">
+    <div class="row"><label>日付<input type="date" id="mf_date" value="${esc(m.date)}"></label><label>ｱﾜｰﾒｰﾀｰ (h)${H?`<span class="note">前回 ${H.toFixed(1)}</span>`:""}<input id="mf_hours" inputmode="decimal" value="${esc(m.hours)}"></label></div>
+    <label>内容<input id="mf_item" list="itemlist" value="${esc(m.item)}" placeholder="ｴﾝｼﾞﾝｵｲﾙ" required></label>
+    <datalist id="itemlist">${S.plan.map(p=>`<option value="${esc(p.item)}">`).join("")}</datalist>
+    <div class="row"><label>費用 (円)<input id="mf_yen" inputmode="numeric" value="${esc(m.yen)}"></label></div>
+    <label>ﾒﾓ (部品の番号・店など)<textarea id="mf_memo">${esc(m.memo)}</textarea></label>
+    <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="mf_cancel">やめる</button>${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="mf_del">消す</button>':""}</div></form>`;
+  document.getElementById("mf").onsubmit=e=>{ e.preventDefault();
+    const nm2={id:m.id||uid(),date:val("mf_date"),hours:val("mf_hours"),item:val("mf_item"),yen:val("mf_yen"),memo:val("mf_memo")};
+    if(!nm2.item){ toast("内容を入れてください"); return; }
+    if(id) S.maint[S.maint.findIndex(x=>x.id===id)]=nm2; else S.maint.push(nm2);
+    save(); toast("整備を記録しました"); render(); };
+  document.getElementById("mf_cancel").onclick=()=>render();
+  delBtnLogic(document.getElementById("mf_del"),()=>{ S.maint=S.maint.filter(x=>x.id!==id); save(); render(); toast("消しました"); });
+};
+
 /* ---------- ﾃﾞｰﾀ (GPX 読込・控え) ---------- */
 let trackLayers=[];
 function renderData(){
@@ -425,10 +517,19 @@ function renderData(){
   <h3 style="margin-top:16px">控えを作る</h3>
   <p class="note">ﾃﾞｰﾀはこのｽﾏﾎの中だけにあります (ﾌﾞﾗｳｻﾞのﾃﾞｰﾀを消すと消えます)。ときどき控えを保存してください。GPX は魚探・GPS ﾌﾟﾛｯﾀｰにも読めます。</p>
   <div class="row"><button class="btn" id="expJson">控え (JSON)</button><button class="btn" id="expGpx">ﾎﾟｲﾝﾄを GPX で</button>${trackLayers.length?'<button class="btn" id="clrTrk">航跡の線を消す</button>':""}</div>
+  <h3 style="margin-top:16px">整備の目安 (船ﾀﾌﾞの予定に使う)</h3>
+  <p class="note">項目ごとに「何時間ごと」「何か月ごと」。使わない方は 0。行を消すには項目名を空にして保存。</p>
+  <div id="planRows" class="form">${S.plan.map((p,i)=>`<div class="row"><input id="pl_i${i}" value="${esc(p.item)}" style="flex:2;min-width:0"><input id="pl_h${i}" inputmode="numeric" value="${p.h}" style="flex:1;min-width:0" aria-label="時間"><input id="pl_m${i}" inputmode="numeric" value="${p.m}" style="flex:1;min-width:0" aria-label="月"></div>`).join("")}
+  <div class="row"><input id="pl_inew" placeholder="項目を足す" style="flex:2;min-width:0"><input id="pl_hnew" inputmode="numeric" placeholder="時間" style="flex:1;min-width:0"><input id="pl_mnew" inputmode="numeric" placeholder="月" style="flex:1;min-width:0"></div></div>
+  <div class="row" style="margin-top:6px"><button class="btn" id="planSave">目安を保存</button></div>
   <h3 style="margin-top:16px">母港</h3>
   <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。</p>
   <div class="row"><button class="btn" id="setPort">今いる場所を母港にする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
+  document.getElementById("planSave").onclick=()=>{
+    const np=[]; S.plan.forEach((p,i)=>{ const it=val("pl_i"+i); if(it) np.push({item:it,h:num(val("pl_h"+i))||0,m:num(val("pl_m"+i))||0}); });
+    const ni=val("pl_inew"); if(ni) np.push({item:ni,h:num(val("pl_hnew"))||0,m:num(val("pl_mnew"))||0});
+    S.plan=np; save(); render(); toast("整備の目安を保存しました"); };
   document.getElementById("setPort").onclick=()=>{ if(!me){ toast("まだ現在地が取れていません"); return; }
     S.port={...S.port,lat:me.lat,lng:me.lng}; portMk.setLatLng([me.lat,me.lng]); save(); updateNav(); render(); toast("母港を今の場所にしました"); };
   document.getElementById("fileIn").onchange=e=>{ const f=e.target.files[0]; if(f) importFile(f); };
@@ -466,6 +567,8 @@ function importText(name,txt){
   if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt); if(!Array.isArray(j.points)) throw 0;
       if(j.points.length && j.points[0].point_name!==undefined){ importKaichouzu(j); return; }
       let add=0; j.points.forEach(p=>{ if(!S.points.some(x=>x.id===p.id)){ S.points.push(p); add++; } }); (j.logs||[]).forEach(l=>{ if(!S.logs.some(x=>x.id===l.id)) S.logs.push(l); });
+      (j.fuel||[]).forEach(l=>{ if(!S.fuel.some(x=>x.id===l.id)) S.fuel.push(l); });
+      (j.maint||[]).forEach(l=>{ if(!S.maint.some(x=>x.id===l.id)) S.maint.push(l); });
       save(); drawMarkers(); toast(`控えから ${add} 件追加しました`); render(); }catch(e){ toast("この JSON は読めませんでした"); } return; }
   const doc=new DOMParser().parseFromString(txt,"application/xml");
   if(doc.querySelector("parsererror")){ toast("GPX として読めませんでした"); return; }
