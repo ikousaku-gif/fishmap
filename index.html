@@ -140,7 +140,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22g";
+const APP_VER="2026-11-22h";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -287,7 +287,14 @@ function openPointForm(id,lat,lng){
     <label>ﾒﾓ<textarea id="pf_memo">${esc(p.memo||"")}</textarea></label>
     <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="pf_cancel">やめる</button>
     ${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="pf_del">このﾎﾟｲﾝﾄを消す</button>':""}</div>
+    <div class="row" style="border-top:1px dashed var(--line);padding-top:8px"><button class="btn" type="button" id="pf_port">⚓ この位置を母港にする</button><span class="note">今の母港: ${esc(S.port.name)}</span></div>
   </form>`;
+  document.getElementById("pf_port").onclick=()=>{
+    const lat=parseFloat(val("pf_lat")), lng=parseFloat(val("pf_lng"));
+    if(isNaN(lat)||isNaN(lng)){ toast("緯度・経度を数字で入れてください"); return; }
+    S.port={lat,lng,name:val("pf_name")||"和気港"}; portMk.setLatLng([lat,lng]).setTooltipContent(S.port.name);
+    save(); updateNav(); render(); toast("母港を「"+S.port.name+"」にしました (ﾎﾟｲﾝﾄとしては登録していません)");
+  };
   document.getElementById("pf").onsubmit=e=>{
     e.preventDefault();
     const np={ id:p.id||uid(), name:val("pf_name")||"名無し", lat:parseFloat(val("pf_lat")), lng:parseFloat(val("pf_lng")),
@@ -596,7 +603,7 @@ function renderData(){
   <div class="row"><input id="pl_inew" placeholder="項目を足す" style="flex:2;min-width:0"><input id="pl_hnew" inputmode="numeric" placeholder="時間" style="flex:1;min-width:0"><input id="pl_mnew" inputmode="numeric" placeholder="月" style="flex:1;min-width:0"></div></div>
   <div class="row" style="margin-top:6px"><button class="btn" id="planSave">目安を保存</button></div>
   <h3 style="margin-top:16px">母港</h3>
-  <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。</p>
+  <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。家などから決める時は、十字を合わせて「十字の所に追加」(または地図を長押し) →「⚓ この位置を母港にする」でも決められます。</p>
   <div class="row"><button class="btn" id="setPort">今いる場所を母港にする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
   document.getElementById("reloadBtn").onclick=()=>{ toast("読み込み直します…"); location.replace(location.pathname+"?u="+Date.now()); };
