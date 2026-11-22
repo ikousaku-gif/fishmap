@@ -115,6 +115,7 @@ svg text{fill:var(--sub);font-size:10px}
     <button data-t="points" class="on">ﾎﾟｲﾝﾄ</button>
     <button data-t="tide">潮</button>
     <button data-t="log">釣果</button>
+    <button data-t="trips">出港</button>
     <button data-t="boat">船</button>
     <button data-t="data">ﾃﾞｰﾀ</button>
   </div>
@@ -140,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22j";
+const APP_VER="2026-11-22k";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -367,7 +368,7 @@ function sizeSheet(){ requestAnimationFrame(()=>document.documentElement.style.s
 
 function render(){
   setTall(tab==="data"||tab==="tide"||tab==="boat");
-  if(tab==="points") renderPoints(); else if(tab==="tide") renderTide(); else if(tab==="log") renderLog(); else if(tab==="boat") renderBoat(); else renderData();
+  if(tab==="points") renderPoints(); else if(tab==="tide") renderTide(); else if(tab==="log") renderLog(); else if(tab==="boat") renderBoat(); else if(tab==="trips") renderTrips(); else renderData();
   sizeSheet();
 }
 function renderPoints(){
@@ -501,10 +502,6 @@ function renderBoat(){
   <h3 style="margin-top:12px">整備の予定</h3><div class="list">`+
   S.plan.map((p,i)=>{ const s=planStatus(p); return `<div class="item" onclick="openMaintForm(null,'${esc(p.item)}')"><div><div class="nm">${esc(p.item)}</div><div class="meta">目安 ${p.h?p.h+" 時間":""}${p.h&&p.m?"・":""}${p.m?p.m+" か月":""}ごと${s.last?`　前回 ${esc(s.last.date)}${s.last.hours?" / "+esc(s.last.hours)+"h":""}`:""}</div></div><div class="dist" style="color:${col[s.lvl]};font-weight:700">${s.txt}</div></div>`; }).join("")+`</div>
   <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
-  <h3 style="margin-top:12px">出船記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+
-  (S.trips&&S.trips.length ? `<div class="row" style="margin-bottom:6px"><button class="btn" onclick="showTrips('month')">この 1 か月</button><button class="btn" onclick="showTrips('year')">この 1 年</button><button class="btn" onclick="showTrips('all')">全部</button><button class="btn" onclick="showTrips('none')">全部消す</button></div>
-   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)} <span class="tag">${esc(tripArea(t))}</span></div><div class="meta">${esc(t.start)}〜${esc(t.end)}　出港 ${esc(depText(t,true))}${t.memo?`　<b>${esc(t.memo)}</b>`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
-   : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`)+`
   <h3 style="margin-top:12px">記録</h3><div class="list">`+
   [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
     ? `<div class="item" onclick="openFuelForm('${x.o.id}')"><div><div class="nm">⛽ 給油 ${esc(x.o.liters)} L${x.o.full?"（満タン）":""}</div><div class="meta">${esc(x.o.date)}　${x.o.hours?esc(x.o.hours)+" h":""}　${x.o.yen?Number(num(x.o.yen)).toLocaleString()+" 円":""}${x.o.memo?"　"+esc(x.o.memo):""}</div></div></div>`
@@ -528,7 +525,7 @@ function tripInfoHtml(t){
   return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}${t.memo?`<br><b>${esc(t.memo)}</b>`:""}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>出港 ${t.dep?esc(t.dep.time):""} ${esc(depText(t))}<br>帰港 ${t.ret?esc(t.ret.time):""} ${esc(retText(t))}<br><button class="btn" style="margin-top:6px;padding:4px 10px" onclick="openTripForm('${t.date}')">直す</button> <button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
 }
 window.openTripForm=function(date){
-  const t=S.trips.find(x=>x.date===date); if(!t) return; map.closePopup(); setTab("boat",true);
+  const t=S.trips.find(x=>x.date===date); if(!t) return; map.closePopup(); setTab("trips",true);
   const opts=(cur,auto)=>["", "和気港 (自分の船)", "ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)", "不明"].map(v=>`<option value="${esc(v)}" ${v===(cur||"")?"selected":""}>${v?esc(v):"自動: "+esc(auto)}</option>`).join("")+(cur&&!["和気港 (自分の船)","ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)","不明"].includes(cur)?`<option selected value="${esc(cur)}">${esc(cur)}</option>`:"");
   body.innerHTML=`<h3>${esc(t.date)} の出船を直す</h3><form class="form" id="tf">
     <label>出港<select id="tf_dep">${opts(t.depFix,t.dep?portLabel(t.dep):"不明")}</select></label>
@@ -564,7 +561,7 @@ window.toggleTrip=function(date,on){
   const shown=!!tripLayers[date]; if(on===undefined) on=!shown;
   if(on && !shown){ tripLayers[date]=drawTrip(t).addTo(map); }
   if(!on && shown){ map.removeLayer(tripLayers[date]); delete tripLayers[date]; map.closePopup(); }
-  if(tab==="boat" && !sheet.classList.contains("closed")) render();
+  if(tab==="trips" && !sheet.classList.contains("closed")) render();
 };
 window.showTrips=function(range){
   Object.keys(tripLayers).forEach(d=>toggleTrip(d,false));
@@ -577,6 +574,11 @@ window.showTrips=function(range){
   toast(`航路 ${list.length} 日分を出しました。線を押すとその日の情報が出ます`);
 };
 window.showTrip=function(date){ toggleTrip(date); if(tripLayers[date]){ const t=S.trips.find(x=>x.date===date); closeSheet(); map.fitBounds(L.latLngBounds(t.path.map(p=>[p[0],p[1]])),{padding:[50,50]}); } };
+function renderTrips(){
+  body.innerHTML=`<h3>出港記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+(S.trips&&S.trips.length ? `<div class="row" style="margin-bottom:6px"><button class="btn" onclick="showTrips('month')">この 1 か月</button><button class="btn" onclick="showTrips('year')">この 1 年</button><button class="btn" onclick="showTrips('all')">全部</button><button class="btn" onclick="showTrips('none')">全部消す</button></div>
+   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)} <span class="tag">${esc(tripArea(t))}</span></div><div class="meta">${esc(t.start)}〜${esc(t.end)}　出港 ${esc(depText(t,true))}${t.memo?`　<b>${esc(t.memo)}</b>`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
+   : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`);
+}
 function delBtnLogic(btn,fn){ if(!btn) return; btn.onclick=()=>{ if(btn.dataset.ok!=="1"){ btn.dataset.ok="1"; btn.textContent="もう一度押すと消えます"; return; } fn(); }; }
 window.openFuelForm=function(id){
   const f=id?S.fuel.find(x=>x.id===id):{id:null,date:today(),hours:"",liters:"",yen:"",full:true,memo:""};
@@ -680,7 +682,7 @@ function importText(name,txt){
           if(i<0){ S.trips.push(t); add++; }
           else { const o=S.trips[i]; ["depFix","retFix","memo"].forEach(k=>{ if(o[k]!==undefined && t[k]===undefined) t[k]=o[k]; }); S.trips[i]=t; upd++; } });
         Object.keys(tripLayers).forEach(d=>toggleTrip(d,false));
-        save(); toast(`出船記録: ${add} 日分 追加・${upd} 日分 更新しました`); setTab("boat"); return; }
+        save(); toast(`出船記録: ${add} 日分 追加・${upd} 日分 更新しました`); setTab("trips"); return; }
       if(Array.isArray(j.semanticSegments)){ toast("ﾀｲﾑﾗｲﾝの元ﾌｧｲﾙは大きすぎるので、PC で海の上だけ取り出した ﾌｧｲﾙを読み込んでください"); return; }
       if(!Array.isArray(j.points)) throw 0;
       if(j.points.length && j.points[0].point_name!==undefined){ importKaichouzu(j); return; }
