@@ -141,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22l";
+const APP_VER="2026-11-22m";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -209,8 +209,8 @@ function portLabel(p,short){
   for(const k of KNOWN_PORTS){ if(distM(p.lat,p.lng,k.lat(),k.lng())<500) return short?k.short:k.name; }
   return short?(p.name||"").replace("松山市",""):(p.name||"");
 }
-L.marker([33.9361,132.7630],{icon:L.divIcon({className:"",html:'<div style="font-size:18px;line-height:18px">🚩</div>',iconSize:[18,18]}),zIndexOffset:400}).addTo(map).bindTooltip("ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)");
-const portMk=L.marker([S.port.lat,S.port.lng],{icon:L.divIcon({className:"",html:'<div style="font-size:22px;line-height:22px">⚓</div>',iconSize:[22,22]}),zIndexOffset:500}).addTo(map).bindTooltip(S.port.name);
+L.marker([33.9361,132.7630],{icon:L.divIcon({className:"",html:'<div style="font-size:36px;line-height:36px;filter:drop-shadow(0 0 2px #fff)">🚩</div>',iconSize:[36,36],iconAnchor:[8,34]}),zIndexOffset:400}).addTo(map).bindTooltip("ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)");
+const portMk=L.marker([S.port.lat,S.port.lng],{icon:L.divIcon({className:"",html:'<div style="font-size:44px;line-height:44px;filter:drop-shadow(0 0 2px #fff)">⚓</div>',iconSize:[44,44],iconAnchor:[22,22]}),zIndexOffset:500}).addTo(map).bindTooltip(S.port.name);
 function origin(){ return S.base==="port" ? S.port : me; }
 const followBtn=document.getElementById("followBtn");
 function showBaseBtn(){
@@ -541,18 +541,38 @@ window.openTripForm=function(date){
     save(); toast("直しました"); render(); };
   document.getElementById("tf_cancel").onclick=()=>render();
 };
+// 出港・帰港を港の位置に寄せる: 直した名前が和気港/ﾏﾘｰﾅならその港、
+// 自動の点が港から 1.5km 以内ならその港。寄せられない時は記録の点のまま
+function snapPort(fix,p){
+  const f=fix||"";
+  if(/和気/.test(f)) return [S.port.lat,S.port.lng];
+  if(/ﾏﾘｰﾅ|マリーナ|ｱﾝｶﾚｯｼﾞ|アンカレッジ/.test(f)) return [33.9361,132.7630];
+  if(f && f!=="不明") return null;
+  if(!p) return null;
+  for(const k of KNOWN_PORTS){ if(distM(p.lat,p.lng,k.lat(),k.lng())<1500) return [k.lat(),k.lng()]; }
+  return null;
+}
 function drawTrip(t){
-  const ll=t.path.map(p=>[p[0],p[1]]), n=t.path.length, c=tripColor(t.date);
-  // 海の上は太い実線、陸の上 (港までの道) は点線
+  const c=tripColor(t.date);
+  const sea=t.path.filter(p=>p[3]!==0);
+  const i0=t.path.indexOf(sea[0]), i1=t.path.lastIndexOf(sea[sea.length-1]);
+  const sd=snapPort(t.depFix,t.dep), sr=snapPort(t.retFix,t.ret);
+  // 港に寄せた時は 港→海→港、寄せられない時は記録の陸の点 (点線) もつなぐ
+  // 印: 0=陸の点 1=海の点 2=寄せた港
+  const pts=[...(sd?[[sd[0],sd[1],t.dep?t.dep.time:"",2]]:t.path.slice(0,i0)), ...sea, ...(sr?[[sr[0],sr[1],t.ret?t.ret.time:"",2]]:t.path.slice(i1+1))];
+  const n=pts.length;
+  // 海の上 (港からの線も) は太い実線、陸の上 (港までの道) は点線
   const parts=[];
-  for(let i=0;i<n-1;i++){ const a=t.path[i], b=t.path[i+1]; const land=(a[3]===0||b[3]===0);
+  for(let i=0;i<n-1;i++){ const a=pts[i], b=pts[i+1]; const land=(a[3]===0||b[3]===0);
     parts.push(L.polyline([[a[0],a[1]],[b[0],b[1]]],land?{color:c,weight:3,opacity:.8,dashArray:"4 6"}:{color:c,weight:4,opacity:1})); }
-  const casing=L.polyline(t.path.filter(p=>p[3]!==0).map(p=>[p[0],p[1]]),{color:"#ffffff",weight:8,opacity:.95});
+  const casing=L.polyline(pts.filter(p=>p[3]!==0).map(p=>[p[0],p[1]]),{color:"#ffffff",weight:8,opacity:.95});
   const pins=[];
-  if(t.dep) pins.push(L.circleMarker([t.dep.lat,t.dep.lng],{radius:8,color:"#fff",weight:2,fillColor:"#16a34a",fillOpacity:1}).bindTooltip(`出港 ${t.dep.time} ${depText(t)}`));
-  if(t.ret) pins.push(L.circleMarker([t.ret.lat,t.ret.lng],{radius:8,color:"#fff",weight:2,fillColor:"#dc2626",fillOpacity:1}).bindTooltip(`帰港 ${t.ret.time} ${retText(t)}`));
+  const dp=sd||(t.dep?[t.dep.lat,t.dep.lng]:null), rp=sr||(t.ret?[t.ret.lat,t.ret.lng]:null);
+  if(dp) pins.push(L.circleMarker(dp,{radius:8,color:"#fff",weight:2,fillColor:"#16a34a",fillOpacity:1}).bindTooltip(`出港 ${t.dep?t.dep.time:""} ${depText(t)}`));
+  if(rp) pins.push(L.circleMarker(rp,{radius:8,color:"#fff",weight:2,fillColor:"#dc2626",fillOpacity:1}).bindTooltip(`帰港 ${t.ret?t.ret.time:""} ${retText(t)}`));
+  t={...t,path:pts};
   const g=L.layerGroup([casing,...parts,
-    ...t.path.map(p=>L.circleMarker([p[0],p[1]],{radius:p[3]===0?3:4,color:"#ffffff",weight:1.5,fillColor:c,fillOpacity:1}).bindTooltip(`${t.date.slice(5)} ${p[2]}`)),...pins]);
+    ...t.path.filter(p=>p[3]!==2).map(p=>L.circleMarker([p[0],p[1]],{radius:p[3]===0?3:4,color:"#ffffff",weight:1.5,fillColor:c,fillOpacity:1}).bindTooltip(`${t.date.slice(5)} ${p[2]}`)),...pins]);
   g.eachLayer(l=>l.on("click",e=>{ L.popup().setLatLng(e.latlng).setContent(tripInfoHtml(t)).openOn(map); }));
   return g;
 }
