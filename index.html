@@ -87,6 +87,7 @@ svg text{fill:var(--sub);font-size:10px}
 <div class="navbox" id="navbox" hidden></div>
 
 <div class="fab">
+  <button id="depthBtn" title="等深線の表示">〰</button>
   <button id="layerBtn" title="地図の種類">🗺</button>
   <button id="followBtn" title="現在地を追う">◎</button>
   <button id="addHereBtn" title="今の場所をﾎﾟｲﾝﾄに">＋</button>
@@ -123,10 +124,25 @@ const LAYERS = [
 ];
 const map = L.map("map",{zoomControl:false}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
+/* 等深線: 国土地理院 沿岸海域土地条件図 (ﾀｲﾙは z14〜16 だけ・松山沖の一部だけ) */
+const DEPTH = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/ccm2/{z}/{x}/{y}.png",{
+  minZoom:12, maxZoom:18, minNativeZoom:14, maxNativeZoom:16, opacity:0.75, zIndex:5,
+  bounds:[[33.79,132.44],[34.33,133.07]],
+  attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">沿岸海域土地条件図 (国土地理院)</a>'});
+if(S.depth!==false) DEPTH.addTo(map);
+function depthHint(){ if(S.depth!==false && map.getZoom()<12) toast("等深線は もう少し拡大すると出ます"); }
+map.on("zoomend",()=>{ if(S.depth!==false && map.getZoom()===11) depthHint(); });
 L.control.scale({imperial:false,position:"bottomleft"}).addTo(map);
 map.on("moveend",()=>{ const c=map.getCenter(); S.view=[+c.lat.toFixed(5),+c.lng.toFixed(5),map.getZoom()]; save(); });
 document.getElementById("layerBtn").onclick=()=>{
   map.removeLayer(curLayer); S.layer=((S.layer||0)+1)%LAYERS.length; curLayer=LAYERS[S.layer][1].addTo(map); save(); toast("地図: "+LAYERS[S.layer][0]);
+};
+const depthBtn=document.getElementById("depthBtn");
+depthBtn.classList.toggle("on",S.depth!==false);
+depthBtn.onclick=()=>{
+  if(S.depth!==false){ S.depth=false; map.removeLayer(DEPTH); toast("等深線を消しました"); }
+  else { S.depth=true; DEPTH.addTo(map); toast(map.getZoom()<12?"等深線: もう少し拡大すると出ます":"等深線を出しました"); }
+  depthBtn.classList.toggle("on",S.depth!==false); save();
 };
 map.on("contextmenu",e=>{ openPointForm(null,e.latlng.lat,e.latlng.lng); });
 
@@ -291,9 +307,9 @@ function renderPoints(){
   const arr=S.points.map(p=>({p,d:me?distM(me.lat,me.lng,p.lat,p.lng):null,b:me?bearing(me.lat,me.lng,p.lat,p.lng):null}))
     .filter(o=>!fishFilter||fishOf(o.p).includes(fishFilter)).sort((a,b)=>(a.d??0)-(b.d??0));
   h+=`<div class="row" style="justify-content:space-between"><h3>ﾎﾟｲﾝﾄ ${fishFilter?`(${esc(fishFilter)})`:""} ${arr.length}件</h3><button class="btn" onclick="openPointForm(null,map.getCenter().lat,map.getCenter().lng)">地図の真ん中に追加</button></div>`;
-  if(!S.points.length) h+=`<p class="note">まだﾎﾟｲﾝﾄがありません。右下の「＋」で今の場所を、地図を長押しでその場所を登録できます。海釣図V の航跡 (GPX) は「ﾃﾞｰﾀ」から読み込めます。</p>`;
+  if(!S.points.length) h+=`<p class="note">まだﾎﾟｲﾝﾄがありません。海釣図V のﾊﾞｯｸｱｯﾌﾟ (zip) を読み込むと、登録したﾎﾟｲﾝﾄがまとめて入ります。右下の「＋」で今の場所を、地図を長押しでその場所も登録できます。</p><div class="row"><button class="btn pri" onclick="setTab('data')">海釣図V のﾊﾞｯｸｱｯﾌﾟを読み込む</button></div>`;
   h+=`<div class="list">`+arr.map(o=>`<div class="item" onclick="selectPoint('${o.p.id}')"><div><div class="nm">${esc(o.p.name)}</div><div class="meta">${fishOf(o.p).join("・")||"魚 未登録"}${o.p.depth?`　${esc(o.p.depth)}m`:""}</div></div><div class="dist">${o.d!=null?fmtD(o.d)+"<br>"+dirName(o.b):""}</div></div>`).join("")+`</div>`;
-  h+=`<div class="warnbar">※ 釣り用のﾒﾓ地図です。航行の安全は海図・魚探・GPS ﾌﾟﾛｯﾀｰで確かめてください。地図に暗礁・浅瀬は出ていません。</div>`;
+  h+=`<div class="warnbar">※ 釣り用のﾒﾓ地図です。航行の安全は海図・魚探・GPS ﾌﾟﾛｯﾀｰで確かめてください。等深線 (〰) は国土地理院の沿岸海域土地条件図で、昔の測量です。出ているのは松山沖の一部 (興居島・中島・松山港の沖など) だけです。</div>`;
   body.innerHTML=h;
 }
 function renderTide(){
@@ -431,7 +447,8 @@ document.getElementById("fishBtn").onclick=()=>{
 function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 let tt; function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,2500); }
 try{ navigator.wakeLock && navigator.wakeLock.request("screen").catch(()=>{}); }catch(e){}
-drawMarkers(); render();
+window.setTab=setTab;
+drawMarkers(); render(); depthHint();
 setInterval(()=>{ if(tab==="tide") render(); },60000);
 </script>
 </body>
