@@ -141,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22p";
+const APP_VER="2026-11-22q";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -567,6 +567,10 @@ function drawTrip(t){
   // 港 → 沖の点 へまっすぐつなぐ (港の近くで線が折れ曲がらないように)
   if(sd){ while(sea.length>2 && distM(sea[0][0],sea[0][1],sd[0],sd[1])<2000) sea=sea.slice(1); }
   if(sr){ while(sea.length>2 && distM(sea[sea.length-1][0],sea[sea.length-1][1],sr[0],sr[1])<2000) sea=sea.slice(0,-1); }
+  // さらに、港とつないだ所で 90 度より急に折り返す点 (行って戻る形) を、出入り各 3 点まで飛ばす
+  const back=(a,b,c)=>((b[0]-a[0])*(c[0]-b[0])+(b[1]-a[1])*Math.cos(b[0]*Math.PI/180)**2*(c[1]-b[1]))<0;
+  if(sd){ for(let k=0;k<3 && sea.length>2 && back(sd,sea[0],sea[1]);k++) sea=sea.slice(1); }
+  if(sr){ for(let k=0;k<3 && sea.length>2 && back(sea[sea.length-2],sea[sea.length-1],sr);k++) sea=sea.slice(0,-1); }
   // 港に寄せた時は 港→海→港、寄せられない時は記録の陸の点 (点線) もつなぐ
   // 印: 0=陸の点 1=海の点 2=寄せた港
   const pts=[...(sd?[[sd[0],sd[1],t.dep?t.dep.time:"",2]]:t.path.slice(0,i0)), ...sea, ...(sr?[[sr[0],sr[1],t.ret?t.ret.time:"",2]]:t.path.slice(i1+1))];
