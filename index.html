@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>松山沖 釣りマップ</title>
+<meta name="theme-color" content="#0f2a3d">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap">
+<style>
+/* 全画面の地図 + 下からの引き出し (ﾎﾟｲﾝﾄ/潮/記録/設定) */
+:root{
+  --bg:#f3f6f8; --panel:#ffffff; --fg:#13222e; --sub:#5b6b78; --line:#d6dee5;
+  --sea:#0f2a3d; --accent:#e8661c; --accent-fg:#ffffff; --ok:#1d8a4e; --hi:#2b6cb0; --lo:#b7791f;
+  --font:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0b1620; --panel:#132331; --fg:#e4edf3; --sub:#93a6b5; --line:#24394b;
+    --sea:#081520; --accent:#ff8a3d; --accent-fg:#1a0d04; --ok:#4cc38a; --hi:#6aa9ec; --lo:#e2b15a; color-scheme:dark }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font);overflow:hidden}
+#map{position:fixed;inset:0;z-index:1;background:#aac8dd}
+.top{position:fixed;z-index:500;top:calc(env(safe-area-inset-top,0px) + 8px);left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));display:flex;gap:6px;align-items:flex-start;pointer-events:none}
+.top > *{pointer-events:auto}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:999px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer;white-space:nowrap}
+.chip.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.gps{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 10px;font-size:13px;color:var(--sub);font-variant-numeric:tabular-nums}
+.gps b{color:var(--fg)}
+.navbox{position:fixed;z-index:500;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 52px);background:var(--sea);color:#fff;border-radius:12px;padding:6px 14px;font-size:15px;display:flex;gap:12px;align-items:center;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.navbox{white-space:nowrap;max-width:calc(100% - 24px)}
+.navbox > span:first-child{overflow:hidden;text-overflow:ellipsis;max-width:7em;font-size:13px}
+.navbox .big{font-size:22px;font-weight:700}
+.navbox button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;font:inherit;font-size:13px;padding:2px 8px}
+.fab{position:fixed;z-index:500;right:max(12px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px;bottom:calc(var(--sheet-h,56px) + 12px)}
+.fab button{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:20px;box-shadow:0 2px 6px rgba(0,0,0,.2);cursor:pointer}
+.fab button.on{background:var(--accent);color:var(--accent-fg)}
+.sheet{position:fixed;z-index:600;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -4px 16px rgba(0,0,0,.15);padding-bottom:env(safe-area-inset-bottom,0px);display:flex;flex-direction:column;max-height:62vh}
+.tabs{display:flex;border-bottom:1px solid var(--line);padding:0 max(8px,env(safe-area-inset-left,0px))}
+.tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;color:var(--sub);font:inherit;font-weight:700;padding:12px 4px 9px;cursor:pointer}
+.tabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
+.body{overflow:auto;padding:12px max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+.sheet.closed .body{display:none}
+h3{margin:4px 0 8px;font-size:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.list{display:flex;flex-direction:column;gap:0}
+.item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.item .nm{font-weight:700}
+.item .meta{color:var(--sub);font-size:13px}
+.item .dist{font-variant-numeric:tabular-nums;color:var(--sub);white-space:nowrap;text-align:right}
+.btn{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
+.btn.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:700}
+.btn.warn{color:#c53030}
+label{display:flex;flex-direction:column;gap:2px;font-size:13px;color:var(--sub);flex:1;min-width:120px}
+input,textarea,select{font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%}
+textarea{min-height:60px}
+.form{display:flex;flex-direction:column;gap:10px}
+.note{font-size:12px;color:var(--sub)}
+.tag{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:12px;margin:2px 4px 0 0}
+.tidehead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tidename{font-weight:700;font-size:18px}
+.tev{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px;font-variant-numeric:tabular-nums;font-size:14px}
+.tev div{background:var(--bg);border-radius:8px;padding:6px;text-align:center}
+.tev .k{font-size:11px;color:var(--sub)}
+svg text{fill:var(--sub);font-size:10px}
+.warnbar{font-size:12px;color:var(--sub);border-top:1px dashed var(--line);margin-top:12px;padding-top:8px}
+.pin{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.pin.dim{background:#8a99a6;opacity:.7}
+.pin.hit{animation:flash 1s infinite}
+.pin.sel{background:#d53f8c}
+@keyframes flash{50%{box-shadow:0 0 0 10px rgba(232,102,28,.35)}}
+@media (prefers-reduced-motion: reduce){.pin.hit{animation:none;box-shadow:0 0 0 5px rgba(232,102,28,.5)}}
+.me{width:18px;height:18px;border-radius:50%;background:#2b6cb0;border:3px solid #fff;box-shadow:0 0 0 2px rgba(43,108,176,.4)}
+.toast{position:fixed;z-index:900;left:50%;transform:translateX(-50%);bottom:calc(var(--sheet-h,56px) + 70px);background:var(--sea);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px}
+.leaflet-control-attribution{font-size:10px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="top">
+  <div class="gps" id="gps">GPS: 待機中</div>
+  <div style="flex:1"></div>
+  <button class="chip" id="fishBtn">🐟 魚で探す</button>
+</div>
+<div class="navbox" id="navbox" hidden></div>
+
+<div class="fab">
+  <button id="layerBtn" title="地図の種類">🗺</button>
+  <button id="followBtn" title="現在地を追う">◎</button>
+  <button id="addHereBtn" title="今の場所をﾎﾟｲﾝﾄに">＋</button>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="tabs" id="tabs">
+    <button data-t="points" class="on">ﾎﾟｲﾝﾄ</button>
+    <button data-t="tide">潮</button>
+    <button data-t="log">釣果</button>
+    <button data-t="data">ﾃﾞｰﾀ</button>
+  </div>
+  <div class="body" id="body"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+/* ---------- 保存 (この端末の中だけ) ---------- */
+const KEY = "matsuyama_fishmap_v1";
+function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || null; }catch(e){ return null; } }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast("保存できませんでした"); } }
+let S = load() || { points:[], logs:[], view:[33.87,132.62,11], layer:0 };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+/* ---------- 地図 ---------- */
+const GSI = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院ﾀｲﾙ</a>';
+const LAYERS = [
+  ["淡色", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
+  ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
+  ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
+];
+const map = L.map("map",{zoomControl:false}).setView([S.view[0],S.view[1]],S.view[2]);
+let curLayer = LAYERS[S.layer||0][1].addTo(map);
+L.control.scale({imperial:false,position:"bottomleft"}).addTo(map);
+map.on("moveend",()=>{ const c=map.getCenter(); S.view=[+c.lat.toFixed(5),+c.lng.toFixed(5),map.getZoom()]; save(); });
+document.getElementById("layerBtn").onclick=()=>{
+  map.removeLayer(curLayer); S.layer=((S.layer||0)+1)%LAYERS.length; curLayer=LAYERS[S.layer][1].addTo(map); save(); toast("地図: "+LAYERS[S.layer][0]);
+};
+map.on("contextmenu",e=>{ openPointForm(null,e.latlng.lat,e.latlng.lng); });
+
+/* ---------- 距離・方位 ---------- */
+function distM(a,b,c,d){ const R=6371000,t=Math.PI/180; const x=Math.sin((c-a)*t/2)**2+Math.cos(a*t)*Math.cos(c*t)*Math.sin((d-b)*t/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
+function bearing(a,b,c,d){ const t=Math.PI/180; const y=Math.sin((d-b)*t)*Math.cos(c*t); const x=Math.cos(a*t)*Math.sin(c*t)-Math.sin(a*t)*Math.cos(c*t)*Math.cos((d-b)*t); return (Math.atan2(y,x)/t+360)%360; }
+const DIR=["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+const dirName = b => DIR[Math.round(b/22.5)%16];
+const fmtD = m => m>=1000 ? (m/1000).toFixed(2)+" km" : Math.round(m)+" m";
+const nm = m => (m/1852).toFixed(2)+" 海里";
+
+/* ---------- GPS ---------- */
+let me=null, meMk=null, meAcc=null, follow=false, sel=null, navLine=null;
+const gpsEl=document.getElementById("gps");
+if("geolocation" in navigator){
+  navigator.geolocation.watchPosition(p=>{
+    me={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,spd:p.coords.speed,hdg:p.coords.heading};
+    const ll=[me.lat,me.lng];
+    if(!meMk){ meMk=L.marker(ll,{icon:L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[18,18]}),zIndexOffset:1000}).addTo(map); meAcc=L.circle(ll,{radius:me.acc,weight:1,fillOpacity:.08}).addTo(map); }
+    else { meMk.setLatLng(ll); meAcc.setLatLng(ll).setRadius(me.acc); }
+    const kt = me.spd!=null ? (me.spd*1.94384).toFixed(1)+" ﾉｯﾄ" : "";
+    gpsEl.innerHTML=`<b>${me.lat.toFixed(5)}, ${me.lng.toFixed(5)}</b><br>誤差 ${Math.round(me.acc)}m ${kt}`;
+    if(follow) map.setView(ll,Math.max(map.getZoom(),14));
+    updateNav(); if(tab==="points") render();
+  },err=>{ gpsEl.textContent="GPS: "+(err.code===1?"位置の使用が許可されていません":"取れません"); },{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
+} else gpsEl.textContent="GPS: この端末では使えません";
+document.getElementById("followBtn").onclick=e=>{ follow=!follow; e.currentTarget.classList.toggle("on",follow); if(follow&&me) map.setView([me.lat,me.lng],Math.max(map.getZoom(),14)); };
+document.getElementById("addHereBtn").onclick=()=>{ if(!me){ toast("まだ現在地が取れていません"); return; } openPointForm(null,me.lat,me.lng); };
+
+function updateNav(){
+  const box=document.getElementById("navbox");
+  if(navLine){ map.removeLayer(navLine); navLine=null; }
+  const p=S.points.find(x=>x.id===sel);
+  if(!p){ box.hidden=true; return; }
+  if(!me){ box.hidden=false; box.innerHTML=`<span>${esc(p.name)}</span><span>現在地待ち</span><button onclick="selectPoint(null)">×</button>`; return; }
+  const d=distM(me.lat,me.lng,p.lat,p.lng), b=bearing(me.lat,me.lng,p.lat,p.lng);
+  navLine=L.polyline([[me.lat,me.lng],[p.lat,p.lng]],{color:"#d53f8c",weight:3,dashArray:"6 6"}).addTo(map);
+  let eta=""; if(me.spd && me.spd>0.5){ eta=" 約"+Math.round(d/me.spd/60)+"分"; }
+  box.hidden=false;
+  box.innerHTML=`<span>${esc(p.name)}</span><span class="big">${fmtD(d)}</span><span>${Math.round(b)}° ${dirName(b)}<br><small>${nm(d)}${eta}</small></span><button onclick="selectPoint(null)">×</button>`;
+}
+
+/* ---------- ﾎﾟｲﾝﾄ ---------- */
+let markers={}, fishFilter=null;
+function fishOf(p){ const s=new Set(p.fish||[]); S.logs.filter(l=>l.pid===p.id).forEach(l=>l.fish&&s.add(l.fish)); return [...s]; }
+function drawMarkers(){
+  Object.values(markers).forEach(m=>map.removeLayer(m)); markers={};
+  S.points.forEach(p=>{
+    let cls="pin"; if(p.id===sel) cls+=" sel";
+    if(fishFilter){ cls += fishOf(p).includes(fishFilter) ? " hit" : " dim"; }
+    const m=L.marker([p.lat,p.lng],{icon:L.divIcon({className:"",html:`<div class="${cls}"></div>`,iconSize:[22,22],iconAnchor:[11,22]})}).addTo(map);
+    m.bindTooltip(p.name,{direction:"top",offset:[0,-20]});
+    m.on("click",()=>{ selectPoint(p.id); setTab("points"); });
+    markers[p.id]=m;
+  });
+}
+function selectPoint(id){ sel=id; drawMarkers(); updateNav(); render(); }
+window.selectPoint=selectPoint;
+
+function openPointForm(id,lat,lng){
+  const p = id ? S.points.find(x=>x.id===id) : {id:null,name:"",lat,lng,depth:"",fish:[],memo:""};
+  setTab("points",true);
+  body.innerHTML=`<h3>${id?"ﾎﾟｲﾝﾄを直す":"ﾎﾟｲﾝﾄを追加"}</h3>
+  <form class="form" id="pf">
+    <label>名前<input id="pf_name" value="${esc(p.name)}" placeholder="例: 興居島の西の根" required></label>
+    <div class="row"><label>緯度<input id="pf_lat" inputmode="decimal" value="${(+p.lat).toFixed(6)}"></label>
+    <label>経度<input id="pf_lng" inputmode="decimal" value="${(+p.lng).toFixed(6)}"></label></div>
+    <div class="row"><label>水深 (m)<input id="pf_depth" inputmode="decimal" value="${esc(p.depth||"")}"></label>
+    <label>狙える魚 (、区切り)<input id="pf_fish" value="${esc((p.fish||[]).join("、"))}" placeholder="真鯛、ﾒﾊﾞﾙ"></label></div>
+    <label>ﾒﾓ<textarea id="pf_memo">${esc(p.memo||"")}</textarea></label>
+    <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="pf_cancel">やめる</button>
+    ${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="pf_del">このﾎﾟｲﾝﾄを消す</button>':""}</div>
+  </form>`;
+  document.getElementById("pf").onsubmit=e=>{
+    e.preventDefault();
+    const np={ id:p.id||uid(), name:val("pf_name")||"名無し", lat:parseFloat(val("pf_lat")), lng:parseFloat(val("pf_lng")),
+      depth:val("pf_depth"), fish:splitFish(val("pf_fish")), memo:val("pf_memo") };
+    if(isNaN(np.lat)||isNaN(np.lng)){ toast("緯度・経度を数字で入れてください"); return; }
+    if(id) S.points[S.points.findIndex(x=>x.id===id)]=np; else S.points.push(np);
+    save(); sel=np.id; drawMarkers(); updateNav(); render(); toast("保存しました");
+  };
+  document.getElementById("pf_cancel").onclick=()=>render();
+  const del=document.getElementById("pf_del");
+  if(del) del.onclick=()=>{
+    if(del.dataset.ok!=="1"){ del.dataset.ok="1"; del.textContent="もう一度押すと消えます"; return; }
+    S.points=S.points.filter(x=>x.id!==id); S.logs=S.logs.filter(l=>l.pid!==id); save(); sel=null; drawMarkers(); updateNav(); render(); toast("消しました");
+  };
+}
+const splitFish = s => s.split(/[、,，\s]+/).map(x=>x.trim()).filter(Boolean);
+const val = id => document.getElementById(id).value.trim();
+
+/* ---------- 潮 ---------- */
+let TIDE=null, tideDay=new Date();
+fetch("tide_MT.json").then(r=>r.json()).then(j=>{ TIDE=j; if(tab==="tide") render(); }).catch(()=>{});
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function moonAge(d){ const ref=Date.UTC(2000,0,6,18,14); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12).getTime(); return (((t-ref)/86400000)%29.530588853+29.530588853)%29.530588853; }
+function tideName(d){
+  const day=Math.floor(moonAge(d))+1; // 旧暦の日の目安
+  const T={1:"大潮",2:"大潮",3:"大潮",4:"中潮",5:"中潮",6:"中潮",7:"小潮",8:"小潮",9:"小潮",10:"長潮",11:"若潮",12:"中潮",13:"中潮",14:"大潮",15:"大潮",16:"大潮",17:"大潮",18:"大潮",19:"中潮",20:"中潮",21:"中潮",22:"小潮",23:"小潮",24:"小潮",25:"長潮",26:"若潮",27:"中潮",28:"中潮",29:"中潮",30:"大潮"};
+  return T[Math.min(day,30)];
+}
+function tideAt(date){ // 毎時値を補間 (cm)
+  if(!TIDE) return null; const k=TIDE[ymd(date)]; if(!k) return null;
+  const h=date.getHours()+date.getMinutes()/60; const i=Math.floor(h);
+  const a=k.h[i], b = i<23 ? k.h[i+1] : (TIDE[ymd(new Date(date.getTime()+86400000))]||k).h[0];
+  return a+(b-a)*(h-i);
+}
+function tideSVG(k,isToday){
+  const W=340,H=150,pl=28,pr=6,pt=10,pb=20;
+  const vals=k.h, mn=Math.min(...vals,0), mx=Math.max(...vals,350);
+  const x=h=>pl+(W-pl-pr)*h/24, y=v=>pt+(H-pt-pb)*(1-(v-mn)/(mx-mn));
+  let d=""; vals.forEach((v,i)=>{ d+=(i?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1); });
+  let grid="";
+  for(let h=0;h<=24;h+=6) grid+=`<line x1="${x(h)}" x2="${x(h)}" y1="${pt}" y2="${H-pb}" stroke="var(--line)"/><text x="${x(h)}" y="${H-6}" text-anchor="middle">${h}時</text>`;
+  for(let v=0;v<=mx;v+=100) grid+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-dasharray="2 3"/><text x="${pl-3}" y="${y(v)+3}" text-anchor="end">${v}</text>`;
+  let now="";
+  if(isToday){ const n=new Date(); const hh=n.getHours()+n.getMinutes()/60; const tv=tideAt(n); if(tv!=null) now=`<line x1="${x(hh)}" x2="${x(hh)}" y1="${pt}" y2="${H-pb}" stroke="var(--accent)" stroke-width="2"/><circle cx="${x(hh)}" cy="${y(tv)}" r="5" fill="var(--accent)"/>`; }
+  const ev=(arr,c)=>arr.map(([t,v])=>{ const hh=+t.slice(0,2)+(+t.slice(2))/60; return `<circle cx="${x(hh)}" cy="${y(v)}" r="3" fill="${c}"/>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="潮位ｸﾞﾗﾌ">${grid}<path d="${d}" fill="none" stroke="var(--hi)" stroke-width="2.2"/>${ev(k.hi,"var(--hi)")}${ev(k.lo,"var(--lo)")}${now}</svg>`;
+}
+function tideTrend(){
+  const n=new Date(), a=tideAt(n), b=tideAt(new Date(n.getTime()+20*60000));
+  if(a==null||b==null) return "";
+  const k=TIDE[ymd(n)]; const evs=[...k.hi.map(e=>[e[0],"満潮"]),...k.lo.map(e=>[e[0],"干潮"])].map(([t,nm])=>[+t.slice(0,2)*60+(+t.slice(2)),nm]).sort((p,q)=>p[0]-q[0]);
+  const m=n.getHours()*60+n.getMinutes(); const nx=evs.find(e=>e[0]>m);
+  let s=`今 ${Math.round(a)}cm・${b>a?"上げ潮":"下げ潮"}`;
+  if(nx){ const r=nx[0]-m; s+=`／次の${nx[1]}まで ${Math.floor(r/60)}時間${r%60}分`; }
+  return s;
+}
+
+/* ---------- 画面 ---------- */
+const body=document.getElementById("body"); let tab="points";
+document.getElementById("tabs").onclick=e=>{ const t=e.target.dataset.t; if(!t) return; if(t===tab && !sheet.classList.contains("closed")){ sheet.classList.add("closed"); sizeSheet(); return; } setTab(t); };
+const sheet=document.getElementById("sheet");
+function setTab(t,noRender){ tab=t; sheet.classList.remove("closed"); document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t)); if(!noRender) render(); sizeSheet(); }
+function sizeSheet(){ requestAnimationFrame(()=>document.documentElement.style.setProperty("--sheet-h",sheet.offsetHeight+"px")); }
+
+function render(){
+  if(tab==="points") renderPoints(); else if(tab==="tide") renderTide(); else if(tab==="log") renderLog(); else renderData();
+  sizeSheet();
+}
+function renderPoints(){
+  const p=S.points.find(x=>x.id===sel);
+  let h="";
+  if(p){
+    const logs=S.logs.filter(l=>l.pid===p.id).sort((a,b)=>b.date.localeCompare(a.date));
+    h+=`<h3>${esc(p.name)}</h3><div class="meta note">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.depth?`　水深 ${esc(p.depth)}m`:""}</div>
+    <div>${fishOf(p).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}</div>
+    ${p.memo?`<p style="white-space:pre-wrap;margin:6px 0">${esc(p.memo)}</p>`:""}
+    <div class="row" style="margin:8px 0">
+      <button class="btn pri" onclick="openLogForm(null,'${p.id}')">釣果を記録</button>
+      <button class="btn" onclick="openPointForm('${p.id}')">直す</button>
+      <a class="btn" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}" target="_blank" rel="noopener">Google ﾏｯﾌﾟ</a>
+      <button class="btn" id="cpy">座標ｺﾋﾟｰ</button>
+    </div>
+    <h3>このﾎﾟｲﾝﾄの釣果 (${logs.length})</h3>${logs.length?logList(logs):'<p class="note">まだ記録がありません。</p>'}
+    <div class="row"><button class="btn" onclick="selectPoint(null)">一覧へ戻る</button></div>`;
+    body.innerHTML=h;
+    document.getElementById("cpy").onclick=()=>{ const t=`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`; (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("ｺﾋﾟｰしました: "+t)).catch(()=>toast(t)); };
+    return;
+  }
+  const arr=S.points.map(p=>({p,d:me?distM(me.lat,me.lng,p.lat,p.lng):null,b:me?bearing(me.lat,me.lng,p.lat,p.lng):null}))
+    .filter(o=>!fishFilter||fishOf(o.p).includes(fishFilter)).sort((a,b)=>(a.d??0)-(b.d??0));
+  h+=`<div class="row" style="justify-content:space-between"><h3>ﾎﾟｲﾝﾄ ${fishFilter?`(${esc(fishFilter)})`:""} ${arr.length}件</h3><button class="btn" onclick="openPointForm(null,map.getCenter().lat,map.getCenter().lng)">地図の真ん中に追加</button></div>`;
+  if(!S.points.length) h+=`<p class="note">まだﾎﾟｲﾝﾄがありません。右下の「＋」で今の場所を、地図を長押しでその場所を登録できます。海釣図V の航跡 (GPX) は「ﾃﾞｰﾀ」から読み込めます。</p>`;
+  h+=`<div class="list">`+arr.map(o=>`<div class="item" onclick="selectPoint('${o.p.id}')"><div><div class="nm">${esc(o.p.name)}</div><div class="meta">${fishOf(o.p).join("・")||"魚 未登録"}${o.p.depth?`　${esc(o.p.depth)}m`:""}</div></div><div class="dist">${o.d!=null?fmtD(o.d)+"<br>"+dirName(o.b):""}</div></div>`).join("")+`</div>`;
+  h+=`<div class="warnbar">※ 釣り用のﾒﾓ地図です。航行の安全は海図・魚探・GPS ﾌﾟﾛｯﾀｰで確かめてください。地図に暗礁・浅瀬は出ていません。</div>`;
+  body.innerHTML=h;
+}
+function renderTide(){
+  const isToday=ymd(tideDay)===ymd(new Date());
+  let h=`<div class="tidehead"><button class="btn" id="tPrev">◀</button><div style="text-align:center"><div class="tidename">${tideDay.getMonth()+1}月${tideDay.getDate()}日(${"日月火水木金土"[tideDay.getDay()]})　${tideName(tideDay)}</div><div class="note">松山 (気象庁 潮位表)・月齢 ${moonAge(tideDay).toFixed(1)}</div></div><button class="btn" id="tNext">▶</button></div>`;
+  if(!TIDE) h+=`<p class="note">潮のﾃﾞｰﾀを読み込み中…</p>`;
+  else { const k=TIDE[ymd(tideDay)];
+    if(!k) h+=`<p class="note">この日のﾃﾞｰﾀはありません (2026〜2027 年だけ入っています)。</p>`;
+    else {
+      if(isToday) h+=`<p style="margin:8px 0 0;font-weight:700">${tideTrend()}</p>`;
+      h+=tideSVG(k,isToday);
+      const cell=(lbl,e,c)=>`<div><div class="k" style="color:${c}">${lbl}</div>${e?e[0].slice(0,2).replace(/^0/,"")+":"+e[0].slice(2)+"<br>"+e[1]+"cm":"―"}</div>`;
+      h+=`<div class="tev">${cell("満潮",k.hi[0],"var(--hi)")}${cell("満潮",k.hi[1],"var(--hi)")}${cell("干潮",k.lo[0],"var(--lo)")}${cell("干潮",k.lo[1],"var(--lo)")}</div>`;
+    } }
+  h+=`<div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="tToday">今日</button></div>
+  <div class="warnbar">潮位は松山港の予測値 (気象庁)。松山沖の場所によって時刻は少しずれます。潮名は月齢から出した目安です。</div>`;
+  body.innerHTML=h;
+  document.getElementById("tPrev").onclick=()=>{ tideDay=new Date(tideDay.getTime()-86400000); render(); };
+  document.getElementById("tNext").onclick=()=>{ tideDay=new Date(tideDay.getTime()+86400000); render(); };
+  document.getElementById("tToday").onclick=()=>{ tideDay=new Date(); render(); };
+}
+function logList(logs){
+  return `<div class="list">`+logs.map(l=>{ const p=S.points.find(x=>x.id===l.pid);
+    return `<div class="item" onclick="openLogForm('${l.id}')"><div><div class="nm">${esc(l.fish||"(魚なし)")}${l.size?` ${esc(l.size)}cm`:""}${l.count?` ×${esc(l.count)}`:""}</div><div class="meta">${esc(l.date.replace("T"," "))}　${esc(l.tide||"")}${l.depth?`　${esc(l.depth)}m`:""}${p?`　📍${esc(p.name)}`:""}</div>${l.memo?`<div class="meta">${esc(l.memo)}</div>`:""}</div></div>`; }).join("")+`</div>`;
+}
+function renderLog(){
+  const logs=[...S.logs].filter(l=>!fishFilter||l.fish===fishFilter).sort((a,b)=>b.date.localeCompare(a.date));
+  body.innerHTML=`<div class="row" style="justify-content:space-between"><h3>釣果の記録 ${logs.length}件</h3><button class="btn pri" onclick="openLogForm(null,null)">今ここで記録</button></div>
+  ${logs.length?logList(logs):'<p class="note">まだ記録がありません。「今ここで記録」を押すと、日時・潮・場所が自動で入ります。</p>'}`;
+}
+function nearestPoint(){ if(!me||!S.points.length) return null; let best=null,bd=1e12; S.points.forEach(p=>{ const d=distM(me.lat,me.lng,p.lat,p.lng); if(d<bd){bd=d;best=p;} }); return bd<1500?best:null; }
+window.openLogForm=function(id,pid){
+  const now=new Date(); const iso=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  const l = id ? S.logs.find(x=>x.id===id) : {id:null,pid:pid||(nearestPoint()||{}).id||"",date:iso,fish:"",size:"",count:"",depth:"",tide:"",memo:"",lat:me?me.lat:null,lng:me?me.lng:null};
+  setTab("log",true);
+  const opts=`<option value="">(ﾎﾟｲﾝﾄなし)</option>`+S.points.map(p=>`<option value="${p.id}" ${p.id===l.pid?"selected":""}>${esc(p.name)}</option>`).join("");
+  const known=[...new Set([...S.points.flatMap(p=>p.fish||[]),...S.logs.map(x=>x.fish).filter(Boolean)])];
+  body.innerHTML=`<h3>${id?"記録を直す":"釣果を記録"}</h3><form class="form" id="lf">
+    <div class="row"><label>日時<input type="datetime-local" id="lf_date" value="${esc(l.date)}"></label><label>ﾎﾟｲﾝﾄ<select id="lf_pid">${opts}</select></label></div>
+    <div class="row"><label>魚<input id="lf_fish" list="fishlist" value="${esc(l.fish)}" placeholder="真鯛"></label><label>大きさ (cm)<input id="lf_size" inputmode="decimal" value="${esc(l.size)}"></label><label>数<input id="lf_count" inputmode="numeric" value="${esc(l.count)}"></label></div>
+    <datalist id="fishlist">${known.map(f=>`<option value="${esc(f)}">`).join("")}</datalist>
+    <div class="row"><label>水深 (m)<input id="lf_depth" inputmode="decimal" value="${esc(l.depth)}"></label><label>潮 (自動)<input id="lf_tide" value="${esc(l.tide)}"></label></div>
+    <label>ﾒﾓ (仕掛け・ｴｻ・風など)<textarea id="lf_memo">${esc(l.memo)}</textarea></label>
+    <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="lf_cancel">やめる</button>${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="lf_del">この記録を消す</button>':""}</div></form>`;
+  const fillTide=()=>{ const d=new Date(val("lf_date")); if(isNaN(d)) return; const v=tideAt(d); const k=TIDE&&TIDE[ymd(d)]; let s=tideName(d); if(v!=null){ const v2=tideAt(new Date(d.getTime()+20*60000)); s+=` ${Math.round(v)}cm ${v2>v?"上げ":"下げ"}`; } document.getElementById("lf_tide").value=s; };
+  if(!id) fillTide(); document.getElementById("lf_date").onchange=fillTide;
+  document.getElementById("lf").onsubmit=e=>{ e.preventDefault();
+    const nl={...l,id:l.id||uid(),date:val("lf_date"),pid:val("lf_pid"),fish:val("lf_fish"),size:val("lf_size"),count:val("lf_count"),depth:val("lf_depth"),tide:val("lf_tide"),memo:val("lf_memo")};
+    if(id) S.logs[S.logs.findIndex(x=>x.id===id)]=nl; else S.logs.push(nl);
+    save(); drawMarkers(); toast("記録しました"); render(); };
+  document.getElementById("lf_cancel").onclick=()=>render();
+  const del=document.getElementById("lf_del");
+  if(del) del.onclick=()=>{ if(del.dataset.ok!=="1"){ del.dataset.ok="1"; del.textContent="もう一度押すと消えます"; return; } S.logs=S.logs.filter(x=>x.id!==id); save(); drawMarkers(); render(); toast("消しました"); };
+};
+
+/* ---------- ﾃﾞｰﾀ (GPX 読込・控え) ---------- */
+let trackLayers=[];
+function renderData(){
+  body.innerHTML=`<h3>読み込み</h3>
+  <p class="note">海釣図V などから書き出した GPX を選ぶと、ｳｪｲﾎﾟｲﾝﾄはﾎﾟｲﾝﾄとして追加し、航跡は地図に線で出します。この控え (JSON) も読み込めます。</p>
+  <input type="file" id="fileIn" accept=".gpx,.json,application/gpx+xml,application/json,text/xml">
+  <h3 style="margin-top:16px">控えを作る</h3>
+  <p class="note">ﾃﾞｰﾀはこのｽﾏﾎの中だけにあります (ﾌﾞﾗｳｻﾞのﾃﾞｰﾀを消すと消えます)。ときどき控えを保存してください。GPX は魚探・GPS ﾌﾟﾛｯﾀｰにも読めます。</p>
+  <div class="row"><button class="btn" id="expJson">控え (JSON)</button><button class="btn" id="expGpx">ﾎﾟｲﾝﾄを GPX で</button>${trackLayers.length?'<button class="btn" id="clrTrk">航跡の線を消す</button>':""}</div>
+  <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
+  document.getElementById("fileIn").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>importText(f.name,r.result); r.readAsText(f); };
+  document.getElementById("expJson").onclick=()=>dl(`釣りﾏｯﾌﾟ控え_${ymd(new Date())}.json`,JSON.stringify(S,null,1),"application/json");
+  document.getElementById("expGpx").onclick=()=>dl(`釣りﾎﾟｲﾝﾄ_${ymd(new Date())}.gpx`,toGpx(),"application/gpx+xml");
+  const c=document.getElementById("clrTrk"); if(c) c.onclick=()=>{ trackLayers.forEach(t=>map.removeLayer(t)); trackLayers=[]; render(); };
+}
+function importText(name,txt){
+  if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt); if(!Array.isArray(j.points)) throw 0;
+      let add=0; j.points.forEach(p=>{ if(!S.points.some(x=>x.id===p.id)){ S.points.push(p); add++; } }); (j.logs||[]).forEach(l=>{ if(!S.logs.some(x=>x.id===l.id)) S.logs.push(l); });
+      save(); drawMarkers(); toast(`控えから ${add} 件追加しました`); render(); }catch(e){ toast("この JSON は読めませんでした"); } return; }
+  const doc=new DOMParser().parseFromString(txt,"application/xml");
+  if(doc.querySelector("parsererror")){ toast("GPX として読めませんでした"); return; }
+  let add=0;
+  doc.querySelectorAll("wpt").forEach(w=>{ const lat=+w.getAttribute("lat"), lng=+w.getAttribute("lon"); if(isNaN(lat)||isNaN(lng)) return;
+    if(S.points.some(p=>Math.abs(p.lat-lat)<1e-6&&Math.abs(p.lng-lng)<1e-6)) return;
+    const n=(w.querySelector("name")||{}).textContent||"読込ﾎﾟｲﾝﾄ"; const ds=((w.querySelector("desc")||w.querySelector("cmt")||{}).textContent)||"";
+    S.points.push({id:uid(),name:n.trim(),lat,lng,depth:"",fish:[],memo:ds.trim()}); add++; });
+  let pts=0;
+  doc.querySelectorAll("trkseg, rte").forEach(seg=>{ const ll=[...seg.querySelectorAll("trkpt, rtept")].map(p=>[+p.getAttribute("lat"),+p.getAttribute("lon")]).filter(a=>!isNaN(a[0])); if(ll.length>1){ const t=L.polyline(ll,{color:"#2b6cb0",weight:3,opacity:.8}).addTo(map); trackLayers.push(t); pts+=ll.length; } });
+  save(); drawMarkers();
+  if(trackLayers.length) map.fitBounds(L.featureGroup(trackLayers).getBounds(),{padding:[30,30]});
+  toast(`ﾎﾟｲﾝﾄ ${add} 件追加・航跡 ${pts} 点を表示`); render();
+}
+function toGpx(){
+  const x=s=>String(s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="matsuyama-fishmap" xmlns="http://www.topografix.com/GPX/1/1">\n`+
+    S.points.map(p=>`<wpt lat="${p.lat}" lon="${p.lng}"><name>${x(p.name)}</name><desc>${x([fishOf(p).join("・"),p.depth?p.depth+"m":"",p.memo].filter(Boolean).join(" / "))}</desc></wpt>`).join("\n")+`\n</gpx>\n`;
+}
+function dl(name,txt,type){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([txt],{type})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000); }
+
+/* ---------- 魚で探す ---------- */
+document.getElementById("fishBtn").onclick=()=>{
+  const all=[...new Set([...S.points.flatMap(p=>p.fish||[]),...S.logs.map(l=>l.fish).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,"ja"));
+  setTab("points",true);
+  body.innerHTML=`<h3>魚で探す</h3><p class="note">選んだ魚が登録された・釣れたﾎﾟｲﾝﾄが光ります。</p><div class="row">`+
+    (all.length?all.map(f=>`<button class="chip ${f===fishFilter?"on":""}" data-f="${esc(f)}">${esc(f)}</button>`).join(""):'<span class="note">まだ魚が登録されていません。</span>')+
+    `</div><div class="row" style="margin-top:10px"><button class="btn" data-f="">すべて表示</button></div>`;
+  body.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{ fishFilter=b.dataset.f||null; document.getElementById("fishBtn").classList.toggle("on",!!fishFilter); document.getElementById("fishBtn").textContent=fishFilter?"🐟 "+fishFilter:"🐟 魚で探す"; drawMarkers(); sel=null; updateNav(); render();
+    const hit=S.points.filter(p=>fishFilter&&fishOf(p).includes(fishFilter)); if(hit.length) map.fitBounds(L.latLngBounds(hit.map(p=>[p.lat,p.lng])),{padding:[60,60],maxZoom:14}); });
+  sizeSheet();
+};
+
+/* ---------- その他 ---------- */
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+let tt; function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,2500); }
+try{ navigator.wakeLock && navigator.wakeLock.request("screen").catch(()=>{}); }catch(e){}
+drawMarkers(); render();
+setInterval(()=>{ if(tab==="tide") render(); },60000);
+</script>
+</body>
+</html>
