@@ -141,7 +141,7 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22o";
+const APP_VER="2026-11-22p";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
@@ -560,9 +560,13 @@ function snapPort(fix,p){
 }
 function drawTrip(t){
   const c=tripColor(t.date);
-  const sea=t.path.filter(p=>p[3]!==0);
+  let sea=t.path.filter(p=>p[3]!==0);
   const i0=t.path.indexOf(sea[0]), i1=t.path.lastIndexOf(sea[sea.length-1]);
   const sd=snapPort(t.depFix,t.dep), sr=snapPort(t.retFix,t.ret);
+  // 港に寄せた時は、港から 2km 以内の海の点 (港を出入りする所の粗い点) を飛ばして、
+  // 港 → 沖の点 へまっすぐつなぐ (港の近くで線が折れ曲がらないように)
+  if(sd){ while(sea.length>2 && distM(sea[0][0],sea[0][1],sd[0],sd[1])<2000) sea=sea.slice(1); }
+  if(sr){ while(sea.length>2 && distM(sea[sea.length-1][0],sea[sea.length-1][1],sr[0],sr[1])<2000) sea=sea.slice(0,-1); }
   // 港に寄せた時は 港→海→港、寄せられない時は記録の陸の点 (点線) もつなぐ
   // 印: 0=陸の点 1=海の点 2=寄せた港
   const pts=[...(sd?[[sd[0],sd[1],t.dep?t.dep.time:"",2]]:t.path.slice(0,i0)), ...sea, ...(sr?[[sr[0],sr[1],t.ret?t.ret.time:"",2]]:t.path.slice(i1+1))];
