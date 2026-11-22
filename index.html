@@ -104,6 +104,7 @@ svg text{fill:var(--sub);font-size:10px}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 "use strict";
 /* ---------- 保存 (この端末の中だけ) ---------- */
@@ -352,19 +353,46 @@ window.openLogForm=function(id,pid){
 let trackLayers=[];
 function renderData(){
   body.innerHTML=`<h3>読み込み</h3>
-  <p class="note">海釣図V などから書き出した GPX を選ぶと、ｳｪｲﾎﾟｲﾝﾄはﾎﾟｲﾝﾄとして追加し、航跡は地図に線で出します。この控え (JSON) も読み込めます。</p>
-  <input type="file" id="fileIn" accept=".gpx,.json,application/gpx+xml,application/json,text/xml">
+  <p class="note">海釣図V の「ﾊﾞｯｸｱｯﾌﾟ」の zip を選ぶと、登録したﾎﾟｲﾝﾄをまとめて追加します (名前から魚を推測)。GPX はｳｪｲﾎﾟｲﾝﾄをﾎﾟｲﾝﾄに、航跡を線にします。このｱﾌﾟﾘの控え (JSON) も読み込めます。</p>
+  <input type="file" id="fileIn" accept=".zip,.gpx,.json,application/zip,application/gpx+xml,application/json,text/xml">
   <h3 style="margin-top:16px">控えを作る</h3>
   <p class="note">ﾃﾞｰﾀはこのｽﾏﾎの中だけにあります (ﾌﾞﾗｳｻﾞのﾃﾞｰﾀを消すと消えます)。ときどき控えを保存してください。GPX は魚探・GPS ﾌﾟﾛｯﾀｰにも読めます。</p>
   <div class="row"><button class="btn" id="expJson">控え (JSON)</button><button class="btn" id="expGpx">ﾎﾟｲﾝﾄを GPX で</button>${trackLayers.length?'<button class="btn" id="clrTrk">航跡の線を消す</button>':""}</div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
-  document.getElementById("fileIn").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>importText(f.name,r.result); r.readAsText(f); };
+  document.getElementById("fileIn").onchange=e=>{ const f=e.target.files[0]; if(f) importFile(f); };
   document.getElementById("expJson").onclick=()=>dl(`釣りﾏｯﾌﾟ控え_${ymd(new Date())}.json`,JSON.stringify(S,null,1),"application/json");
   document.getElementById("expGpx").onclick=()=>dl(`釣りﾎﾟｲﾝﾄ_${ymd(new Date())}.gpx`,toGpx(),"application/gpx+xml");
   const c=document.getElementById("clrTrk"); if(c) c.onclick=()=>{ trackLayers.forEach(t=>map.removeLayer(t)); trackLayers=[]; render(); };
 }
+/* 海釣図V の「ﾊﾞｯｸｱｯﾌﾟ」zip (mypoints.json) */
+const FISH_WORDS=["カワハギ","ハマチ","ブリ","メジロ","サワラ","イサキ","アジ","サバ","タコ","イカ","メバル","カサゴ","ガシラ","アコウ","キス","チヌ","クロダイ","マダイ","タイ","ヒラメ","カレイ","タチウオ","スズキ","シーバス","サゴシ"];
+function fishFromName(n){
+  const s=n.normalize("NFKC"); const r=[];
+  FISH_WORDS.forEach(w=>{ if(s.includes(w) && !r.some(x=>x.includes(w)||w.includes(x))) r.push(w); });
+  return r;
+}
+function importKaichouzu(j){
+  let add=0;
+  j.points.forEach(p=>{ const lat=+p.lat, lng=+p.lon; if(isNaN(lat)||isNaN(lng)) return;
+    if(S.points.some(x=>Math.abs(x.lat-lat)<1e-6&&Math.abs(x.lng-lng)<1e-6)) return;
+    const d=p.r_date?new Date(p.r_date*1000):null;
+    const name=(p.point_name||"海釣図Vのﾎﾟｲﾝﾄ").normalize("NFKC");
+    S.points.push({id:uid(),name,lat,lng,depth:"",fish:fishFromName(name),memo:[p.memo||"",d?`海釣図V 登録 ${ymd(d)}`:""].filter(Boolean).join("\n")}); add++; });
+  save(); drawMarkers();
+  if(S.points.length) map.fitBounds(L.latLngBounds(S.points.map(p=>[p.lat,p.lng])),{padding:[40,40]});
+  toast(`海釣図V から ${add} 件追加しました`); render();
+}
+async function importFile(f){
+  if(/\.zip$/i.test(f.name)){
+    try{ const z=await JSZip.loadAsync(f); const mp=z.file("mypoints.json"); if(!mp) throw 0; importKaichouzu(JSON.parse(await mp.async("string"))); }
+    catch(e){ toast("この zip は読めませんでした (海釣図V のﾊﾞｯｸｱｯﾌﾟを選んでください)"); }
+    return;
+  }
+  const r=new FileReader(); r.onload=()=>importText(f.name,r.result); r.readAsText(f);
+}
 function importText(name,txt){
   if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt); if(!Array.isArray(j.points)) throw 0;
+      if(j.points.length && j.points[0].point_name!==undefined){ importKaichouzu(j); return; }
       let add=0; j.points.forEach(p=>{ if(!S.points.some(x=>x.id===p.id)){ S.points.push(p); add++; } }); (j.logs||[]).forEach(l=>{ if(!S.logs.some(x=>x.id===l.id)) S.logs.push(l); });
       save(); drawMarkers(); toast(`控えから ${add} 件追加しました`); render(); }catch(e){ toast("この JSON は読めませんでした"); } return; }
   const doc=new DOMParser().parseFromString(txt,"application/xml");
