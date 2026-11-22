@@ -140,14 +140,14 @@ const LAYERS = [
   ["写真", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",{maxZoom:18,attribution:GSI})],
   ["標準", L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png",{maxZoom:18,attribution:GSI})],
 ];
-const APP_VER="2026-11-22i";
+const APP_VER="2026-11-22j";
 // 地図は 中国・四国の西のあたりから外へ出ないようにする (指で流しすぎて迷子にならないように)
 const map = L.map("map",{zoomControl:false,minZoom:8,maxBounds:[[32.3,130.6],[35.3,134.8]],maxBoundsViscosity:1.0}).setView([S.view[0],S.view[1]],S.view[2]);
 let curLayer = LAYERS[S.layer||0][1].addTo(map);
 /* 等深線: 国土地理院 沿岸海域土地条件図 (ﾀｲﾙは z14〜16 だけ・松山沖の一部だけ) */
 const DEPTH = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/ccm2/{z}/{x}/{y}.png",{
   minZoom:12, maxZoom:18, minNativeZoom:14, maxNativeZoom:16, opacity:0.75, zIndex:5,
-  bounds:[[33.79,132.44],[34.33,133.07]],
+  bounds:[[33.5,131.9],[34.6,134.5]],
   attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">沿岸海域土地条件図 (国土地理院)</a>'});
 /* 等深線 (広域): NOAA ETOPO 2022 (約 450m 格子) から作った線。上の詳しい図が無い所だけ */
 const DEPTH2 = L.geoJSON(null,{
@@ -287,14 +287,7 @@ function openPointForm(id,lat,lng){
     <label>ﾒﾓ<textarea id="pf_memo">${esc(p.memo||"")}</textarea></label>
     <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="pf_cancel">やめる</button>
     ${id?'<div style="flex:1"></div><button class="btn warn" type="button" id="pf_del">このﾎﾟｲﾝﾄを消す</button>':""}</div>
-    <div class="row" style="border-top:1px dashed var(--line);padding-top:8px"><button class="btn" type="button" id="pf_port">⚓ この位置を母港にする</button><span class="note">今の母港: ${esc(S.port.name)}</span></div>
   </form>`;
-  document.getElementById("pf_port").onclick=()=>{
-    const lat=parseFloat(val("pf_lat")), lng=parseFloat(val("pf_lng"));
-    if(isNaN(lat)||isNaN(lng)){ toast("緯度・経度を数字で入れてください"); return; }
-    S.port={lat,lng,name:val("pf_name")||"和気港"}; portMk.setLatLng([lat,lng]).setTooltipContent(S.port.name);
-    save(); updateNav(); render(); toast("母港を「"+S.port.name+"」にしました (ﾎﾟｲﾝﾄとしては登録していません)");
-  };
   document.getElementById("pf").onsubmit=e=>{
     e.preventDefault();
     const np={ id:p.id||uid(), name:val("pf_name")||"名無し", lat:parseFloat(val("pf_lat")), lng:parseFloat(val("pf_lng")),
@@ -315,7 +308,16 @@ const val = id => document.getElementById(id).value.trim();
 
 /* ---------- 潮 ---------- */
 let TIDE=null, tideDay=new Date();
-fetch("tide_MT.json").then(r=>r.json()).then(j=>{ TIDE=j; if(tab==="tide") render(); }).catch(()=>{});
+// 潮位の地点 (気象庁)。最初は地図の真ん中に近い地点を選ぶ。潮の画面で切り替えられる
+const TIDE_ST=[{id:"MT",name:"松山",lat:33.867,lng:132.717},{id:"NI",name:"新居浜",lat:33.967,lng:133.267},{id:"L8",name:"伊予三島 (土居・川之江)",lat:33.983,lng:133.55}];
+const TIDE_CACHE={};
+let tideSt=S.tideSt||(()=>{ const c=map.getCenter(); return TIDE_ST.reduce((a,b)=>distM(c.lat,c.lng,a.lat,a.lng)<distM(c.lat,c.lng,b.lat,b.lng)?a:b).id; })();
+function loadTide(id){
+  tideSt=id; TIDE=TIDE_CACHE[id]||null; if(tab==="tide") render();
+  if(TIDE) return;
+  fetch(`tide_${id}.json`).then(r=>r.json()).then(j=>{ TIDE_CACHE[id]=j; if(tideSt===id){ TIDE=j; if(tab==="tide") render(); } }).catch(()=>{});
+}
+// loadTide(tideSt) は画面の準備が済んでから (いちばん下) で呼ぶ
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 function moonAge(d){ const ref=Date.UTC(2000,0,6,18,14); const t=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12).getTime(); return (((t-ref)/86400000)%29.530588853+29.530588853)%29.530588853; }
 function tideName(d){
@@ -400,7 +402,8 @@ function renderPoints(){
 }
 function renderTide(){
   const isToday=ymd(tideDay)===ymd(new Date());
-  let h=`<div class="tidehead"><button class="btn" id="tPrev">◀</button><div style="text-align:center"><div class="tidename">${tideDay.getMonth()+1}月${tideDay.getDate()}日(${"日月火水木金土"[tideDay.getDay()]})　${tideName(tideDay)}</div><div class="note">松山 (気象庁 潮位表)・月齢 ${moonAge(tideDay).toFixed(1)}</div></div><button class="btn" id="tNext">▶</button></div>`;
+  let h=`<div class="tidehead"><button class="btn" id="tPrev">◀</button><div style="text-align:center"><div class="tidename">${tideDay.getMonth()+1}月${tideDay.getDate()}日(${"日月火水木金土"[tideDay.getDay()]})　${tideName(tideDay)}</div><div class="note">気象庁 潮位表・月齢 ${moonAge(tideDay).toFixed(1)}</div></div><button class="btn" id="tNext">▶</button></div>
+  <div class="row" style="justify-content:center;margin-top:6px">${TIDE_ST.map(s=>`<button class="chip ${s.id===tideSt?"on":""}" data-st="${s.id}">${esc(s.name)}</button>`).join("")}</div>`;
   if(!TIDE) h+=`<p class="note">潮のﾃﾞｰﾀを読み込み中…</p>`;
   else { const k=TIDE[ymd(tideDay)];
     if(!k) h+=`<p class="note">この日のﾃﾞｰﾀはありません (2026〜2027 年だけ入っています)。</p>`;
@@ -411,11 +414,12 @@ function renderTide(){
       h+=`<div class="tev">${cell("満潮",k.hi[0],"var(--hi)")}${cell("満潮",k.hi[1],"var(--hi)")}${cell("干潮",k.lo[0],"var(--lo)")}${cell("干潮",k.lo[1],"var(--lo)")}</div>`;
     } }
   h+=`<div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="tToday">今日</button></div>
-  <div class="warnbar">潮位は松山港の予測値 (気象庁)。松山沖の場所によって時刻は少しずれます。潮名は月齢から出した目安です。</div>`;
+  <div class="warnbar">潮位は選んだ港の予測値 (気象庁)。沖の場所によって時刻は少しずれます。潮名は月齢から出した目安です。</div>`;
   body.innerHTML=h;
   document.getElementById("tPrev").onclick=()=>{ tideDay=new Date(tideDay.getTime()-86400000); render(); };
   document.getElementById("tNext").onclick=()=>{ tideDay=new Date(tideDay.getTime()+86400000); render(); };
   document.getElementById("tToday").onclick=()=>{ tideDay=new Date(); render(); };
+  body.querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>{ S.tideSt=b.dataset.st; save(); loadTide(b.dataset.st); });
 }
 function logList(logs){
   return `<div class="list">`+logs.map(l=>{ const p=S.points.find(x=>x.id===l.pid);
@@ -499,7 +503,7 @@ function renderBoat(){
   <p class="note">目安の時間・月数は仮の値です。DF200 の取扱説明書で確かめて「ﾃﾞｰﾀ」の下で直してください。</p>
   <h3 style="margin-top:12px">出船記録 (Google ﾀｲﾑﾗｲﾝから)</h3>`+
   (S.trips&&S.trips.length ? `<div class="row" style="margin-bottom:6px"><button class="btn" onclick="showTrips('month')">この 1 か月</button><button class="btn" onclick="showTrips('year')">この 1 年</button><button class="btn" onclick="showTrips('all')">全部</button><button class="btn" onclick="showTrips('none')">全部消す</button></div>
-   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)} <span class="tag">${esc(tripArea(t))}</span></div><div class="meta">${esc(t.start)}〜${esc(t.end)}${t.dep?`　出港 ${esc(portLabel(t.dep,true))}`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
+   <div class="list">`+[...S.trips].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{ const on=!!tripLayers[t.date]; return `<div class="item" onclick="showTrip('${t.date}')"><div style="display:flex;gap:10px;align-items:center"><span style="width:22px;height:22px;border-radius:6px;border:2px solid ${tripColor(t.date)};background:${on?tripColor(t.date):"transparent"};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px">${on?"✓":""}</span><div><div class="nm">🚤 ${esc(t.date)} <span class="tag">${esc(tripArea(t))}</span></div><div class="meta">${esc(t.start)}〜${esc(t.end)}　出港 ${esc(depText(t,true))}${t.memo?`　<b>${esc(t.memo)}</b>`:""}</div></div></div><div class="dist">約 ${t.km} km</div></div>`; }).join("")+`</div><p class="note">押すたびにその日の航路を 出す/消す。いくつでも重ねて出せます。地図の線を押すとその日の情報が出ます。ﾀｲﾑﾗｲﾝは数分〜数十分おきの記録なので、距離は少なめに出ます。</p>`
    : `<p class="note">まだありません。「ﾃﾞｰﾀ」から出船記録 (JSON) を読み込むと出ます。</p>`)+`
   <h3 style="margin-top:12px">記録</h3><div class="list">`+
   [...S.fuel.map(f=>({k:"f",d:f.date,o:f})),...S.maint.map(m=>({k:"m",d:m.date,o:m}))].sort((a,b)=>(b.d||"").localeCompare(a.d||"")).map(x=> x.k==="f"
@@ -517,9 +521,29 @@ function tripArea(t){
   const lng=sea.reduce((s,p)=>s+p[1],0)/sea.length;
   return lng<133.0?"松山沖":lng<133.4?"新居浜・西条沖":lng<133.65?"四国中央沖":"香川沖";
 }
+// 出港・帰港は 本人が直した名前 (depFix/retFix) があればそれを出す
+function depText(t,short){ return t.depFix || (t.dep?portLabel(t.dep,short):"不明"); }
+function retText(t,short){ return t.retFix || (t.ret?portLabel(t.ret,short):"不明"); }
 function tripInfoHtml(t){
-  return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>${t.dep?`出港 ${esc(t.dep.time)} ${esc(portLabel(t.dep))}<br>`:""}${t.ret?`帰港 ${esc(t.ret.time)} ${esc(portLabel(t.ret))}<br>`:""}<button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
+  return `<b>🚤 ${esc(t.date)}</b>　${esc(tripArea(t))}${t.memo?`<br><b>${esc(t.memo)}</b>`:""}<br>海の上 ${esc(t.start)}〜${esc(t.end)}　約 ${t.km} km<br>出港 ${t.dep?esc(t.dep.time):""} ${esc(depText(t))}<br>帰港 ${t.ret?esc(t.ret.time):""} ${esc(retText(t))}<br><button class="btn" style="margin-top:6px;padding:4px 10px" onclick="openTripForm('${t.date}')">直す</button> <button class="btn" style="margin-top:6px;padding:4px 10px" onclick="toggleTrip('${t.date}',false)">この航路を消す</button>`;
 }
+window.openTripForm=function(date){
+  const t=S.trips.find(x=>x.date===date); if(!t) return; map.closePopup(); setTab("boat",true);
+  const opts=(cur,auto)=>["", "和気港 (自分の船)", "ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)", "不明"].map(v=>`<option value="${esc(v)}" ${v===(cur||"")?"selected":""}>${v?esc(v):"自動: "+esc(auto)}</option>`).join("")+(cur&&!["和気港 (自分の船)","ｱﾝｶﾚｯｼﾞﾏﾘｰﾅ (友人の船)","不明"].includes(cur)?`<option selected value="${esc(cur)}">${esc(cur)}</option>`:"");
+  body.innerHTML=`<h3>${esc(t.date)} の出船を直す</h3><form class="form" id="tf">
+    <label>出港<select id="tf_dep">${opts(t.depFix,t.dep?portLabel(t.dep):"不明")}</select></label>
+    <label>帰港<select id="tf_ret">${opts(t.retFix,t.ret?portLabel(t.ret):"不明")}</select></label>
+    <label>上に無い港 (書くとこちらが優先。出港,帰港 の順に「,」で区切る)<input id="tf_other" placeholder="例: 三浜港,三浜港"></label>
+    <label>ﾒﾓ (遊漁船・誰の船 など)<input id="tf_memo" value="${esc(t.memo||"")}"></label>
+    <div class="row"><button class="btn pri" type="submit">保存</button><button class="btn" type="button" id="tf_cancel">やめる</button></div></form>`;
+  document.getElementById("tf").onsubmit=e=>{ e.preventDefault();
+    t.depFix=val("tf_dep")||undefined; t.retFix=val("tf_ret")||undefined;
+    const o=val("tf_other"); if(o){ const [a,b]=o.split(/[,，、]/).map(s=>s.trim()); if(a) t.depFix=a; if(b) t.retFix=b; }
+    t.memo=val("tf_memo")||undefined;
+    if(tripLayers[date]){ toggleTrip(date,false); toggleTrip(date,true); }
+    save(); toast("直しました"); render(); };
+  document.getElementById("tf_cancel").onclick=()=>render();
+};
 function drawTrip(t){
   const ll=t.path.map(p=>[p[0],p[1]]), n=t.path.length, c=tripColor(t.date);
   // 海の上は太い実線、陸の上 (港までの道) は点線
@@ -528,8 +552,8 @@ function drawTrip(t){
     parts.push(L.polyline([[a[0],a[1]],[b[0],b[1]]],land?{color:c,weight:3,opacity:.8,dashArray:"4 6"}:{color:c,weight:4,opacity:1})); }
   const casing=L.polyline(t.path.filter(p=>p[3]!==0).map(p=>[p[0],p[1]]),{color:"#ffffff",weight:8,opacity:.95});
   const pins=[];
-  if(t.dep) pins.push(L.circleMarker([t.dep.lat,t.dep.lng],{radius:8,color:"#fff",weight:2,fillColor:"#16a34a",fillOpacity:1}).bindTooltip(`出港 ${t.dep.time} ${portLabel(t.dep)}`));
-  if(t.ret) pins.push(L.circleMarker([t.ret.lat,t.ret.lng],{radius:8,color:"#fff",weight:2,fillColor:"#dc2626",fillOpacity:1}).bindTooltip(`帰港 ${t.ret.time} ${portLabel(t.ret)}`));
+  if(t.dep) pins.push(L.circleMarker([t.dep.lat,t.dep.lng],{radius:8,color:"#fff",weight:2,fillColor:"#16a34a",fillOpacity:1}).bindTooltip(`出港 ${t.dep.time} ${depText(t)}`));
+  if(t.ret) pins.push(L.circleMarker([t.ret.lat,t.ret.lng],{radius:8,color:"#fff",weight:2,fillColor:"#dc2626",fillOpacity:1}).bindTooltip(`帰港 ${t.ret.time} ${retText(t)}`));
   const g=L.layerGroup([casing,...parts,
     ...t.path.map(p=>L.circleMarker([p[0],p[1]],{radius:p[3]===0?3:4,color:"#ffffff",weight:1.5,fillColor:c,fillOpacity:1}).bindTooltip(`${t.date.slice(5)} ${p[2]}`)),...pins]);
   g.eachLayer(l=>l.on("click",e=>{ L.popup().setLatLng(e.latlng).setContent(tripInfoHtml(t)).openOn(map); }));
@@ -608,7 +632,7 @@ function renderData(){
   <div class="row"><input id="pl_inew" placeholder="項目を足す" style="flex:2;min-width:0"><input id="pl_hnew" inputmode="numeric" placeholder="時間" style="flex:1;min-width:0"><input id="pl_mnew" inputmode="numeric" placeholder="月" style="flex:1;min-width:0"></div></div>
   <div class="row" style="margin-top:6px"><button class="btn" id="planSave">目安を保存</button></div>
   <h3 style="margin-top:16px">母港</h3>
-  <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。家などから決める時は、十字を合わせて「十字の所に追加」(または地図を長押し) →「⚓ この位置を母港にする」でも決められます。</p>
+  <p class="note">いま ${esc(S.port.name)} は ${S.port.lat.toFixed(5)}, ${S.port.lng.toFixed(5)} にしています (地図の ⚓)。船の所にいる時に下を押すと、その場所を母港にします。</p>
   <div class="row"><button class="btn" id="setPort">今いる場所を母港にする</button></div>
   <p class="note" style="margin-top:12px">ﾎﾟｲﾝﾄ ${S.points.length} 件・釣果 ${S.logs.length} 件</p>`;
   document.getElementById("reloadBtn").onclick=()=>{ toast("読み込み直します…"); location.replace(location.pathname+"?u="+Date.now()); };
@@ -652,7 +676,9 @@ async function importFile(f){
 function importText(name,txt){
   if(/\.json$/i.test(name)){ try{ const j=JSON.parse(txt);
       if(Array.isArray(j.trips)){ if(!S.trips) S.trips=[]; let add=0, upd=0;
-        j.trips.forEach(t=>{ const i=S.trips.findIndex(x=>x.date===t.date); if(i<0){ S.trips.push(t); add++; } else { S.trips[i]=t; upd++; } });
+        j.trips.forEach(t=>{ const i=S.trips.findIndex(x=>x.date===t.date);
+          if(i<0){ S.trips.push(t); add++; }
+          else { const o=S.trips[i]; ["depFix","retFix","memo"].forEach(k=>{ if(o[k]!==undefined && t[k]===undefined) t[k]=o[k]; }); S.trips[i]=t; upd++; } });
         Object.keys(tripLayers).forEach(d=>toggleTrip(d,false));
         save(); toast(`出船記録: ${add} 日分 追加・${upd} 日分 更新しました`); setTab("boat"); return; }
       if(Array.isArray(j.semanticSegments)){ toast("ﾀｲﾑﾗｲﾝの元ﾌｧｲﾙは大きすぎるので、PC で海の上だけ取り出した ﾌｧｲﾙを読み込んでください"); return; }
@@ -706,7 +732,7 @@ async function setWake(on){
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && follow) setWake(true); });
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 window.setTab=setTab;
-drawMarkers(); render(); depthHint();
+drawMarkers(); render(); depthHint(); loadTide(tideSt);
 setInterval(()=>{ if(tab==="tide") render(); },60000);
 </script>
 </body>
